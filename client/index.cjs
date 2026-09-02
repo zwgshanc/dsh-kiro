@@ -334,6 +334,34 @@ textarea.dshk-input{min-height:78px;resize:vertical;font-family:ui-monospace,SFM
 .dshk-empty{padding:18px;text-align:center;color:#9ca3af;font-size:13px}
 @media(max-width:620px){.dshk-grid{grid-template-columns:1fr}.dshk-field-wide{grid-column:auto}.dshk-auth-url-row{align-items:stretch;flex-direction:column}.dshk-head{align-items:flex-start;flex-direction:column}.dshk-usage-top{align-items:flex-start;flex-direction:column;gap:2px}.dshk-usage-metric{text-align:left}.dshk-model-sub{white-space:normal}}
 @media(prefers-color-scheme:dark){.dshk-notice{background:#0f2a1a;color:#86efac}.dshk-wrap{color:#f3f4f6}.dshk-card,.dshk-modal{border-color:#303642;background:#171a21}.dshk-modal-head{border-color:#303642}.dshk-status,.dshk-model{background:#1d2129;border-color:#303642;color:#d1d5db}.dshk-model:hover{border-color:#8b5cf6;background:#282333}.dshk-btn,.dshk-input,.dshk-method{border-color:#434b59;background:#20242d;color:#f3f4f6}.dshk-method:hover{border-color:#8b5cf6;background:#282333}.dshk-method-icon{background:#332a52;color:#c4b5fd}.dshk-close:hover{background:#272c35}.dshk-form,.dshk-usage{border-color:#303642}.dshk-field{color:#d1d5db}.dshk-code{border-color:#4338ca;background:#272447;color:#c7d2fe}.dshk-bar{background:#303642}.dshk-plan{background:#332a52;color:#c4b5fd}.dshk-link-btn{color:#c4b5fd}}
+body[data-ds-dark-theme] .dshk-notice{background:#0f2a1a;color:#86efac}
+body[data-ds-dark-theme] .dshk-wrap{color:#f3f4f6}
+body[data-ds-dark-theme] .dshk-card,body[data-ds-dark-theme] .dshk-modal{border-color:#303642;background:#171a21}
+body[data-ds-dark-theme] .dshk-modal-head{border-color:#303642}
+body[data-ds-dark-theme] .dshk-status,body[data-ds-dark-theme] .dshk-model{background:#1d2129;border-color:#303642;color:#d1d5db}
+body[data-ds-dark-theme] .dshk-model:hover{border-color:#8b5cf6;background:#282333}
+body[data-ds-dark-theme] .dshk-btn,body[data-ds-dark-theme] .dshk-input,body[data-ds-dark-theme] .dshk-method{border-color:#434b59;background:#20242d;color:#f3f4f6}
+body[data-ds-dark-theme] .dshk-method:hover{border-color:#8b5cf6;background:#282333}
+body[data-ds-dark-theme] .dshk-method-icon{background:#332a52;color:#c4b5fd}
+body[data-ds-dark-theme] .dshk-close:hover{background:#272c35}
+body[data-ds-dark-theme] .dshk-form,body[data-ds-dark-theme] .dshk-usage{border-color:#303642}
+body[data-ds-dark-theme] .dshk-field{color:#d1d5db}
+body[data-ds-dark-theme] .dshk-code{border-color:#4338ca;background:#272447;color:#c7d2fe}
+body[data-ds-dark-theme] .dshk-bar{background:#303642}
+body[data-ds-dark-theme] .dshk-plan{background:#332a52;color:#c4b5fd}
+body[data-ds-dark-theme] .dshk-link-btn{color:#c4b5fd}
+body[data-ds-dark-theme] .dshk-error{background:#2a1010;color:#f87171}
+body[data-ds-dark-theme] .dshk-empty{color:#6b7280}
+body[data-ds-dark-theme] .dshk-desc{color:#9ca3af}
+body[data-ds-dark-theme] .dshk-meta{color:#9ca3af}
+body[data-ds-dark-theme] .dshk-badge{background:#332a52;color:#c4b5fd}
+body[data-ds-dark-theme] .dshk-heading{color:#f3f4f6}
+body[data-ds-dark-theme] .dshk-selected-count{color:#6b7280}
+body[data-ds-dark-theme] .dshk-chevron{color:#6b7280}
+body[data-ds-dark-theme] .dshk-working{color:#9ca3af}
+body[data-ds-dark-theme] .dshk-btn:hover{background:#272c35}
+body[data-ds-dark-theme] .dshk-usage-metric{color:#9ca3af}
+body[data-ds-dark-theme] .dshk-usage-foot{color:#6b7280}
 `
       document.head.appendChild(style)
     }
@@ -504,7 +532,6 @@ textarea.dshk-input{min-height:78px;resize:vertical;font-family:ui-monospace,SFM
               credentials: '',
             }))
             setNotice(noticeFor(next))
-            await refreshUsage()
             return
           }
           const flow = await api('/login', {
@@ -762,12 +789,9 @@ textarea.dshk-input{min-height:78px;resize:vertical;font-family:ui-monospace,SFM
           React.createElement('div', { className: 'dshk-head' },
             React.createElement('div', { className: 'dshk-heading' }, t('account')),
             React.createElement('div', { className: 'dshk-actions' },
-              status?.credentialSource !== 'dsh' && React.createElement('button', {
-                className: 'dshk-btn dshk-primary', disabled: !!busy, onClick: openAuth,
-              }, status?.authenticated ? t('connectManaged') : t('connectKiro')),
               status?.authenticated && React.createElement('button', {
-                className: 'dshk-btn', disabled: !!busy, onClick: refreshUsage,
-              }, busy === 'usage' ? t('refreshingUsage') : t('refreshUsage')),
+                className: 'dshk-btn', disabled: !!busy, onClick: openAuth,
+              }, status?.authenticated ? t('connectManaged') : t('connectKiro')),
               status?.credentialSource === 'dsh' && React.createElement('button', { className: 'dshk-btn', disabled: !!busy, onClick: logout }, t('logout')))),
           React.createElement('div', { className: 'dshk-status' },
             React.createElement('span', { className: `dshk-dot${status?.authenticated ? ' dshk-dot-on' : ''}` }),
@@ -780,29 +804,7 @@ textarea.dshk-input{min-height:78px;resize:vertical;font-family:ui-monospace,SFM
           status?.credentialSource === 'kiro' && React.createElement('div', {
             className: 'dshk-meta dshk-details',
           }, t('externalHint')),
-          status?.authenticated && usage && React.createElement('div', { className: 'dshk-usage' },
-            React.createElement('div', { className: 'dshk-usage-top' },
-              React.createElement('span', { className: 'dshk-heading' }, t('usage')),
-              React.createElement('span', { className: 'dshk-plan' }, usage.plan)),
-            (usage.rows || []).map((row) => React.createElement('div', { className: 'dshk-usage-row', key: row.id },
-              React.createElement('div', { className: 'dshk-usage-top' },
-                React.createElement('span', { className: 'dshk-usage-name' }, row.label),
-                React.createElement('span', { className: 'dshk-usage-metric' },
-                  row.unlimited
-                    // The plan reports no usable bound, so there is no percentage
-                    // to show: inventing one would misstate the account.
-                    ? `${formatAmount(row.used)} ${t('used')} · ${t('unlimited')}`
-                    : `${formatAmount(row.used)} / ${formatAmount(row.limit)} ${t('used')} · ${formatAmount(row.remainingPercent)}% ${t('remaining')}`)),
-              React.createElement('div', { className: 'dshk-bar' },
-                React.createElement('div', {
-                  className: 'dshk-fill',
-                  style: { width: `${row.unlimited ? 100 : Math.max(0, Math.min(100, row.remainingPercent || 0))}%` },
-                })),
-              React.createElement('div', { className: 'dshk-usage-foot' },
-                React.createElement('span', null, row.resetAt ? `${t('resets')} ${formatDate(row.resetAt)}` : ''),
-                React.createElement('span', null, `${t('updated')} ${formatDate(usage.fetchedAt)}`))))),
           notice && React.createElement('div', { className: 'dshk-notice', role: 'status' }, notice),
-          usageError && React.createElement('div', { className: 'dshk-error' }, usageError),
           error && React.createElement('div', { className: 'dshk-error' }, error)),
         React.createElement('section', { className: 'dshk-card' },
           React.createElement('div', { className: 'dshk-head' },
