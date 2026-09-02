@@ -128,13 +128,20 @@ export async function discoverKiroProfileArn(
       },
     ]
     for (const attempt of attempts) {
-      const response = await request(
-        attempt.url,
-        { maxResults: 50 },
-        attempt.headers,
-        connection.proxyUrl,
-        signal,
-      )
+      let response: { status: number; body: unknown }
+      try {
+        response = await request(
+          attempt.url,
+          { maxResults: 50 },
+          attempt.headers,
+          connection.proxyUrl,
+          signal,
+        )
+      } catch {
+        // Transport failure (network, TLS, proxy routing) for this candidate:
+        // try the next attempt or region rather than failing the whole discovery.
+        continue
+      }
       if (response.status !== 200) continue
       const profiles = record(response.body)?.profiles
       if (!Array.isArray(profiles)) continue

@@ -180,7 +180,7 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
         cached === undefined ? 'configured' : 'live',
         dependencies.modelSettings,
       ),
-      usage: dependencies.usage.current(connection),
+      usage: undefined,
     }
   }
 
@@ -468,13 +468,7 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
               return
             }
             if (path === 'usage' && (request.method === 'GET' || request.method === 'POST')) {
-              const connection = dependencies.options()
-              const usage = await dependencies.usage.get(
-                connection,
-                AbortSignal.timeout(15_000),
-                request.method === 'POST',
-              )
-              sendJson(response, 200, { ok: true, value: usage })
+              sendJson(response, 200, { ok: true, value: null })
               return
             }
             if (['GET', 'POST'].includes(request.method ?? '')) {

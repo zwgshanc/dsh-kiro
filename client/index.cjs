@@ -236,6 +236,7 @@ window.__ModuleLoader__.load({
     function installNavIcon() {
       const root = document.getElementById('root') || document.body || document.documentElement
       let observer
+      let rootSentinel
       let scope
       let scheduled = false
       let disposed = false
@@ -246,6 +247,19 @@ window.__ModuleLoader__.load({
         scope = target
         observer = new MutationObserver(schedule)
         observer.observe(target, { childList: true, subtree: true })
+        // When narrowed to a nav, keep a sentinel on root watching for the nav
+        // to unmount (an unmounted node never fires its own observer again).
+        if (target !== root) {
+          if (!rootSentinel) {
+            rootSentinel = new MutationObserver(schedule)
+            rootSentinel.observe(root, { childList: true, subtree: true })
+          }
+        } else {
+          if (rootSentinel) {
+            rootSentinel.disconnect()
+            rootSentinel = undefined
+          }
+        }
       }
 
       const apply = () => {
@@ -271,7 +285,9 @@ window.__ModuleLoader__.load({
       return () => {
         disposed = true
         if (observer) observer.disconnect()
+        if (rootSentinel) rootSentinel.disconnect()
         observer = undefined
+        rootSentinel = undefined
         scope = undefined
       }
     }

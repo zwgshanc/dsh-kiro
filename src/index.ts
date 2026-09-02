@@ -225,6 +225,20 @@ export const Config: z<Config> = z.object({
  */
 export type ResolvedKiroOptions = KiroConnectionOptions
 
+/**
+ * Read the standard HTTPS proxy environment variables when no explicit
+ * `proxyUrl` is configured. Checks `https_proxy` and `HTTPS_PROXY` first
+ * (most specific), then `http_proxy` and `HTTP_PROXY` as a fallback.
+ * Returns `undefined` when none are set, preserving the direct-connection
+ * posture for deployments that need no proxy.
+ */
+function proxyFromEnv(): string | undefined {
+  return process.env['https_proxy']
+    ?? process.env['HTTPS_PROXY']
+    ?? process.env['http_proxy']
+    ?? process.env['HTTP_PROXY']
+}
+
 /** Resolve, validate, and detach the advisory model catalog. */
 function resolveModels(models: readonly KiroCatalogModel[] | undefined): KiroCatalogModel[] {
   const seen = new Set<string>()
@@ -322,7 +336,8 @@ export function resolveAdapterOptions(config: Config): ResolvedKiroOptions {
     && config.reasoningEffort !== 'none') {
     throw new Error('llm-kiro: only reasoningEffort "off" or "none" can be configured when thinking is disabled')
   }
-  if (config.proxyUrl !== undefined) parseProxyUrl(config.proxyUrl)
+  const proxyUrl = config.proxyUrl ?? proxyFromEnv()
+  if (proxyUrl !== undefined) parseProxyUrl(proxyUrl)
   const region = config.region === undefined ? undefined : assertKiroRegion(config.region)
   const profileArn = config.profileArn === undefined ? undefined : assertKiroProfileArn(config.profileArn)
   if (config.defaultContextWindow !== undefined
@@ -346,7 +361,7 @@ export function resolveAdapterOptions(config: Config): ResolvedKiroOptions {
     )
   }
   return {
-    ...config.proxyUrl === undefined ? {} : { proxyUrl: config.proxyUrl },
+    ...proxyUrl === undefined ? {} : { proxyUrl },
     ...region === undefined ? {} : { region },
     ...profileArn === undefined ? {} : { profileArn },
     defaults: {
