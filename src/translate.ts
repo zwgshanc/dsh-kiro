@@ -18,7 +18,7 @@
  * @module dsh-kiro/translate
  */
 
-import { CONTEXT_WINDOW_EXCEEDED_CODE, CallId, EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, ToolCallId, EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {
   WireAssistantResponseEvent,
@@ -206,7 +206,7 @@ function closeBlock(block: OpenBlock): ContentBlock {
     case 'reasoning': return { type: 'reasoning', text: block.text }
     case 'tool-call': return {
       type: 'tool-call',
-      id: CallId(block.callId ?? ''),
+      id: ToolCallId(block.callId ?? ''),
       name: block.name ?? '',
       arguments: block.text,
     }
@@ -512,7 +512,7 @@ export async function* translate(
         yield {
           type: 'tool-call-delta',
           index: block.index,
-          id: CallId(event.toolUseId),
+          id: ToolCallId(event.toolUseId),
           ...block.name === undefined ? {} : { name: block.name },
           argumentsDelta: fragment,
         }
