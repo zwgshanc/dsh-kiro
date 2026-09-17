@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createAssistantMessage, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { serializeRequest } from '../src/serialize.ts'
 import type { WireImageBlock, WireUserInputMessage } from '../src/types.ts'
@@ -18,7 +18,7 @@ function assistant(text: string, calls: { id: string; name: string; args: string
       ...text.length > 0 ? [{ type: 'text' as const, text }] : [],
       ...calls.map(call => ({
         type: 'tool-call' as const,
-        id: CallId(call.id),
+        id: ToolCallId(call.id),
         name: call.name,
         arguments: call.args,
       })),
@@ -30,7 +30,7 @@ function assistant(text: string, calls: { id: string; name: string; args: string
 /** One tool-result message for the named call. */
 function toolResult(id: string, text: string, isError = false): Message {
   return createToolResultMessage({
-    callId: CallId(id),
+    callId: ToolCallId(id),
     content: [{ type: 'text', text }],
     isError,
   })
@@ -360,7 +360,7 @@ describe('serializeRequest', () => {
     // `ToolResultContentBlock` is a union of text and json only, so the
     // enclosing turn is the nearest seat that keeps the screenshot.
     const result = createToolResultMessage({
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       content: [
         { type: 'text', text: 'screenshot taken' },
         { type: 'image', attachment: imageRef('att-3') },
@@ -384,5 +384,97 @@ describe('serializeRequest', () => {
 
   it('refuses a request with no messages', () => {
     expect(() => serialize([])).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }))
+  })
+})
+
+describe('serializeRequest user-message cap', () => {
+  /** `n` complete user/assistant exchanges, newest last. */
+  function exchanges(n: number): Message[] {
+    const messages: Message[] = []
+    for (let index = 0; index < n; index += 1) {
+      messages.push(user(`ask ${String(index)}`), assistant(`answer ${String(index)}`))
+    }
+    return messages
+  }
+
+  /** User messages the service counts: every history user turn plus the current one. */
+  function userMessageCount(request: ReturnType<typeof serialize>): number {
+    const history = request.conversationState.history ?? []
+    return history.filter(entry => 'userInputMessage' in entry).length + 1
+  }
+
+  it('leaves a history that already fits untouched', () => {
+    // 99 exchanges plus a closing ask is exactly the 100-message budget.
+    const request = serialize([...exchanges(99), user('now answer')])
+    expect(request.conversationState.history).toHaveLength(198)
+    expect(userMessageCount(request)).toBe(100)
+    expect(request.conversationState.history?.[0])
+      .toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 0' }) })
+  })
+
+  it('caps a longer history at the budget and keeps the newest exchanges', () => {
+    const request = serialize([...exchanges(150), user('now answer')])
+    const history = request.conversationState.history ?? []
+    expect(history).toHaveLength(198)
+    expect(userMessageCount(request)).toBe(100)
+    // Oldest dropped, newest retained verbatim.
+    expect(history.at(-2)).toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 149' }) })
+    expect(history.at(-1)).toEqual({ assistantResponseMessage: { content: 'answer 149' } })
+    expect(JSON.stringify(history)).not.toContain('ask 0"')
+  })
+
+  it('replaces the dropped prefix with one tombstone turn naming the count', () => {
+    const request = serialize([...exchanges(150), user('now answer')])
+    const first = request.conversationState.history?.[0]
+    expect(first).toEqual({
+      userInputMessage: expect.objectContaining({
+        content: expect.stringContaining('Context was automatically truncated'),
+      }),
+    })
+    const content = (first as { userInputMessage: WireUserInputMessage }).userInputMessage.content
+    // 300 folded entries capped to 196 kept leaves 104 discarded.
+    expect(content).toContain('104 earlier messages were discarded')
+    expect(request.conversationState.history?.[1]).toEqual({
+      assistantResponseMessage: { content: 'understood' },
+    })
+  })
+
+  it('still prepends the system prompt to the first history turn after capping', () => {
+    const request = serialize([...exchanges(150), user('now answer')], { system: 'BE TERSE' })
+    const first = request.conversationState.history?.[0] as { userInputMessage: WireUserInputMessage }
+    expect(first.userInputMessage.content.startsWith('BE TERSE')).toBe(true)
+  })
+
+  it('degrades a tool result whose issuing call the cap dropped', () => {
+    // The oldest exchange issues a call whose result arrives in the next turn,
+    // so capping can separate them; the surviving result must not stay
+    // addressed to a call the service no longer sees.
+    const messages: Message[] = [
+      user('start'),
+      assistant('', [{ id: 'call-old', name: 'read', args: '{}' }]),
+      toolResult('call-old', 'OLD TOOL OUTPUT'),
+      ...exchanges(150),
+      user('now answer'),
+    ]
+    const request = serialize(messages)
+    const history = request.conversationState.history ?? []
+    const issued = new Set(history.flatMap(entry =>
+      'assistantResponseMessage' in entry
+        ? (entry.assistantResponseMessage.toolUses ?? []).map(use => use.toolUseId)
+        : []))
+    for (const entry of history) {
+      if (!('userInputMessage' in entry)) continue
+      for (const result of entry.userInputMessage.userInputMessageContext?.toolResults ?? []) {
+        expect(issued.has(result.toolUseId)).toBe(true)
+      }
+    }
+  })
+
+  it('keeps history alternating and even after capping', () => {
+    const history = serialize([...exchanges(150), user('now answer')]).conversationState.history ?? []
+    expect(history.length % 2).toBe(0)
+    history.forEach((entry, index) => {
+      expect('userInputMessage' in entry).toBe(index % 2 === 0)
+    })
   })
 })
