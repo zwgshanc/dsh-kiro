@@ -7,6 +7,10 @@ lib/types/*.js.map
 lib/*.tsbuildinfo
 lib/types/*.tsbuildinfo
 
+# Recorded request bodies produced by verification/history-cap/build-body.mjs.
+# They carry conversation content from whatever session was replayed.
+verification/history-cap/*.json
+
 node_modules/
 *.tgz
 *.log
