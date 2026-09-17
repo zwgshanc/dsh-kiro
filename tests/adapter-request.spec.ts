@@ -210,13 +210,24 @@ describe('Kiro request identity and generation options', () => {
 
   it('sends a user image as a wire image block on a vision model', async () => {
     respond = () => okResponse(textFrame('a cat'))
-    const read: string[] = []
+    const read: { id: string; target: unknown }[] = []
     const chunks: { type: string }[] = []
     for await (const chunk of adapter(connection(), {
       resolveAttachments: () => ({
-        readImageRequest: async (ref: { attachmentId: string }) => {
-          read.push(ref.attachmentId)
-          return { data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' as const }
+        readImageRequest: async (ref: { attachmentId: string }, target: unknown) => {
+          read.push({ id: ref.attachmentId, target })
+          return {
+            variantId: 'sha256:fixture',
+            attachment: ref,
+            data: new Uint8Array([1, 2, 3]),
+            mediaType: 'image/png',
+            bytes: 3,
+            width: 1,
+            height: 1,
+            depth: 'uchar',
+            space: 'srgb',
+            hasAlpha: false,
+          } as never
         },
       }),
     }).stream({
@@ -226,7 +237,10 @@ describe('Kiro request identity and generation options', () => {
     } as GenerateOptions)) {
       chunks.push(chunk as { type: string })
     }
-    expect(read).toEqual(['att-1'])
+    expect(read).toEqual([{
+      id: 'att-1',
+      target: { width: 8000, height: 8000, maxBytes: 3_750_000 },
+    }])
     const body = JSON.parse(posted.at(-1)?.body ?? '{}') as WireRequest
     expect(body.conversationState.currentMessage.userInputMessage.images).toEqual([
       { format: 'png', source: { bytes: 'AQID' } },

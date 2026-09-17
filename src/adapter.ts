@@ -31,7 +31,11 @@ import type {
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { AttachmentId, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentId,
+  ImageAttachmentRef,
+  ImageMediaType,
+} from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { decodeFrames } from './eventstream.ts'
 import { serializeRequest } from './serialize.ts'
@@ -205,11 +209,27 @@ export interface KiroAdapterOptions {
   resolveAttachments?: () => AttachmentStore | undefined
 }
 
+/**
+ * One request-image target, matching the harness's own `ImageRequestTarget`
+ * contract. Declared here rather than imported so this plugin builds against
+ * older `@deepseek-ai/dsh-attachment` releases that predate the type while the
+ * runtime store still honors the shape: target dimensions per side (small
+ * sources are never enlarged) plus an encoded-byte ceiling.
+ */
+export interface ImageRequestTarget {
+  /** Target width in pixels; a target above the source keeps the source width. */
+  width: number
+  /** Target height in pixels; a target above the source keeps the source height. */
+  height: number
+  /** Encoded-byte target before base64 expansion; the smallest quality-ladder output is kept when no quality fits. */
+  maxBytes: number
+}
+
 /** The attachment-store surface this adapter uses: one call, by reference. */
 export interface AttachmentStore {
   readImageRequest: (
     ref: ImageAttachmentRef,
-    policy: { maxPixels: number; maxBytes: number },
+    target: ImageRequestTarget,
     signal?: AbortSignal,
   ) => Promise<{ data: Uint8Array; mediaType: ImageMediaType }>
 }
@@ -235,9 +255,11 @@ export function kiroTokenTypeHeaders(token: KiroToken): Record<string, string> {
  * about image bounds, so these follow the service its models run behind:
  * 8000x8000 is the documented per-image dimension ceiling, and 3.75 MB is the
  * encoded-byte ceiling. Both are applied before base64 expansion, which is what
- * the wire actually carries.
+ * the wire actually carries. The target is expressed in the harness's own
+ * `ImageRequestTarget` contract: per-side dimension ceilings (small sources are
+ * never enlarged) and an encoded-byte ceiling.
  */
-const IMAGE_MAX_PIXELS = 8000 * 8000
+const IMAGE_MAX_DIMENSION = 8000
 const IMAGE_MAX_BYTES = 3_750_000
 
 /** Media types Kiro's `ImageFormat` enum accepts, mapped to its own spelling. */
@@ -293,7 +315,7 @@ async function prepareImages(
   for (const [id, ref] of refs) {
     const version = await store.readImageRequest(
       ref,
-      { maxPixels: IMAGE_MAX_PIXELS, maxBytes: IMAGE_MAX_BYTES },
+      { width: IMAGE_MAX_DIMENSION, height: IMAGE_MAX_DIMENSION, maxBytes: IMAGE_MAX_BYTES },
       signal,
     )
     const format = IMAGE_FORMATS.get(version.mediaType)
