@@ -111,12 +111,24 @@ export interface KiroAdapterOptions {
      */
     resolveAttachments?: () => AttachmentStore | undefined;
 }
+/**
+ * One request-image target, matching the harness's own `ImageRequestTarget`
+ * contract. Declared here rather than imported so this plugin builds against
+ * older `@deepseek-ai/dsh-attachment` releases that predate the type while the
+ * runtime store still honors the shape: target dimensions per side (small
+ * sources are never enlarged) plus an encoded-byte ceiling.
+ */
+export interface ImageRequestTarget {
+    /** Target width in pixels; a target above the source keeps the source width. */
+    width: number;
+    /** Target height in pixels; a target above the source keeps the source height. */
+    height: number;
+    /** Encoded-byte target before base64 expansion; the smallest quality-ladder output is kept when no quality fits. */
+    maxBytes: number;
+}
 /** The attachment-store surface this adapter uses: one call, by reference. */
 export interface AttachmentStore {
-    readImageRequest: (ref: ImageAttachmentRef, policy: {
-        maxPixels: number;
-        maxBytes: number;
-    }, signal?: AbortSignal) => Promise<{
+    readImageRequest: (ref: ImageAttachmentRef, target: ImageRequestTarget, signal?: AbortSignal) => Promise<{
         data: Uint8Array;
         mediaType: ImageMediaType;
     }>;
