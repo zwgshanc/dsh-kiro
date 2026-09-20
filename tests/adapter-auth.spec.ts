@@ -7,16 +7,13 @@ function token(authMethod: KiroToken['authMethod']): KiroToken {
 }
 
 describe('auth-specific Kiro request routing', () => {
-  it('uses CodeWhisperer for IDC and external IdP tokens', () => {
+  it('routes every token to the Kiro runtime gateway', () => {
     expect(kiroRequestEndpoint(token('idc'), 'eu-central-1'))
-      .toBe('https://codewhisperer.eu-central-1.amazonaws.com/generateAssistantResponse')
-    expect(kiroRequestEndpoint(token('external_idp'), 'us-east-1')).toContain('codewhisperer.')
+      .toBe('https://runtime.eu-central-1.kiro.dev/generateAssistantResponse')
+    expect(kiroRequestEndpoint(token('external_idp'), 'us-east-1')).toContain('runtime.')
     expect(kiroTokenTypeHeaders(token('external_idp'))).toEqual({ TokenType: 'EXTERNAL_IDP' })
-  })
-
-  it('uses Amazon Q and its token discriminator for API keys', () => {
     expect(kiroRequestEndpoint(token('api_key'), 'us-west-2'))
-      .toBe('https://q.us-west-2.amazonaws.com/generateAssistantResponse')
+      .toBe('https://runtime.us-west-2.kiro.dev/generateAssistantResponse')
     expect(kiroTokenTypeHeaders(token('api_key'))).toEqual({ TokenType: 'API_KEY' })
   })
 })

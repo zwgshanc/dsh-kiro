@@ -112,7 +112,7 @@ describe('Kiro model discovery', () => {
     await expect(discovery.list(connection, signal)).resolves.toHaveLength(1)
     expect(request).toHaveBeenCalledTimes(1)
     const [url, headers, proxy] = request.mock.calls[0] as [string, Record<string, string>, string]
-    expect(url).toContain('https://codewhisperer.us-east-1.amazonaws.com/ListAvailableModels?')
+    expect(url).toContain('https://management.us-east-1.kiro.dev/ListAvailableModels?')
     expect(url).toContain('profileArn=arn%3Aaws%3Acodewhisperer')
     expect(headers.authorization).toBe('Bearer access')
     expect(headers['user-agent']).toContain('KiroIDE')
@@ -141,9 +141,11 @@ describe('Kiro model discovery', () => {
     const withoutProfile = { ...connection, profileArn: undefined } as unknown as KiroConnectionOptions
     await discovery.list(withoutProfile, new AbortController().signal)
     expect(profiles.mock.calls[0]?.[0]).toBe(
-      'https://codewhisperer.us-east-1.amazonaws.com/ListAvailableProfiles',
+      'https://management.us-east-1.kiro.dev',
     )
-    expect(request.mock.calls[0]?.[0]).toContain('https://q.eu-central-1.amazonaws.com/ListAvailableModels?')
+    expect(profiles.mock.calls[0]?.[2]?.['x-amz-target'])
+      .toBe('KiroControlPlaneBearerService.ListAvailableProfiles')
+    expect(request.mock.calls[0]?.[0]).toContain('https://management.eu-central-1.kiro.dev/ListAvailableModels?')
     expect(request.mock.calls[0]?.[0]).toContain('profileArn=arn%3Aaws%3Acodewhisperer%3Aeu-central-1')
   })
 

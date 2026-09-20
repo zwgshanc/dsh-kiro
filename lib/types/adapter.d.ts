@@ -133,8 +133,16 @@ export interface AttachmentStore {
         mediaType: ImageMediaType;
     }>;
 }
-/** Select the auth-specific upstream surface Kiro accepts. */
-export declare function kiroRequestEndpoint(token: KiroToken, region: string): string;
+/**
+ * The upstream surface for every request: the Kiro runtime gateway, which the
+ * installed Kiro IDE/CLI also uses. It carries no user-message cap and
+ * requires a resolved CodeWhisperer profile; the legacy CodeWhisperer/Amazon Q
+ * surfaces are retired and never selected.
+ * @param token - the resolved bearer token.
+ * @param region - the request region.
+ * @returns the request URL.
+ */
+export declare function kiroRequestEndpoint(_token: KiroToken, region: string, _profileArn?: string): string;
 /** Add the token discriminator required by API-key and external-IdP auth. */
 export declare function kiroTokenTypeHeaders(token: KiroToken): Record<string, string>;
 /**

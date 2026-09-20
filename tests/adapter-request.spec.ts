@@ -36,6 +36,7 @@ function user(text: string): Message {
 function connection(): KiroConnectionOptions {
   return {
     region: 'us-east-1',
+    profileArn: 'arn:aws:codewhisperer:us-east-1:123456789012:profile/X',
     defaults: {},
     defaultContextWindow: 200_000,
     models: [{

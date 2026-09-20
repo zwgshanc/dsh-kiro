@@ -52,13 +52,13 @@ describe('Kiro IDE/CLI credential vocabulary', () => {
     expect(fetchJson.mock.calls[0]?.[1]).toEqual({ refreshToken: 'social-refresh' })
   })
 
-  it('routes a social token to the Amazon Q surface, not CodeWhisperer', () => {
+  it('routes every token to the Kiro runtime gateway', () => {
     expect(kiroRequestEndpoint({
       accessToken: 'a',
       region: 'us-east-1',
       expiresAt: Date.now() + 60_000,
       authMethod: 'social',
-    }, 'us-east-1')).toBe('https://q.us-east-1.amazonaws.com/generateAssistantResponse')
+    }, 'us-east-1')).toBe('https://runtime.us-east-1.kiro.dev/generateAssistantResponse')
   })
 
   it('reads Kiro’s IdC spelling as Identity Center', async () => {

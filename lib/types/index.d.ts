@@ -32,8 +32,6 @@ export { credentialDirectory } from './paths.ts';
 export { assertKiroProfileArn, profileRegion } from './profile.ts';
 export { assertKiroRegion } from './region.ts';
 export { getJson, parseProxyUrl, postForm, postJson, postJsonWithHeaders } from './transport.ts';
-export { KiroUsageService, parseKiroUsage } from './usage.ts';
-export type { KiroUsage, KiroUsageRow, KiroUsageServiceOptions } from './usage.ts';
 export { buildModelRequestFields } from './serialize.ts';
 export type { ModelLimits, RequestDefaults } from './serialize.ts';
 export type * from './types.ts';

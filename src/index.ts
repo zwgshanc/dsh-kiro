@@ -35,7 +35,6 @@ import { assertKiroProfileArn } from './profile.ts'
 import { assertKiroRegion } from './region.ts'
 import { parseProxyUrl, postForm, postJson } from './transport.ts'
 import { registerWebApi } from './web.ts'
-import { KiroUsageService } from './usage.ts'
 
 export {
   DEFAULT_CONTEXT_WINDOW,
@@ -100,8 +99,6 @@ export { credentialDirectory } from './paths.ts'
 export { assertKiroProfileArn, profileRegion } from './profile.ts'
 export { assertKiroRegion } from './region.ts'
 export { getJson, parseProxyUrl, postForm, postJson, postJsonWithHeaders } from './transport.ts'
-export { KiroUsageService, parseKiroUsage } from './usage.ts'
-export type { KiroUsage, KiroUsageRow, KiroUsageServiceOptions } from './usage.ts'
 export { buildModelRequestFields } from './serialize.ts'
 export type { ModelLimits, RequestDefaults } from './serialize.ts'
 export type * from './types.ts'
@@ -416,7 +413,15 @@ export function apply(ctx: Context, config: Config): void {
       ...connection.profileArn === undefined
         ? { resolveProfileArn: (accessToken, region, authMethod) => discoverKiroProfileArn(
           connection,
-          { accessToken, region, authMethod, expiresAt: Date.now() + 60_000 },
+          {
+            accessToken,
+            // The configured region wins: the token's home region may differ
+            // from the account's CodeWhisperer profile region, and discovery
+            // must look where the profile actually lives.
+            region: connection.region ?? region,
+            authMethod,
+            expiresAt: Date.now() + 60_000,
+          },
           signal,
         ) }
         : {},
@@ -424,7 +429,6 @@ export function apply(ctx: Context, config: Config): void {
     })
   const discovery = new KiroModelDiscovery({ resolveToken: tokenResolver })
   const modelSettings = new FileModelSettingsStore()
-  const usage = new KiroUsageService({ resolveToken: tokenResolver })
   const adapter = new KiroAdapter({
     options,
     resolveToken: tokenResolver,
@@ -479,7 +483,6 @@ export function apply(ctx: Context, config: Config): void {
     options,
     discovery,
     modelSettings,
-    usage,
     resolveToken: tokenResolver,
   })
 }

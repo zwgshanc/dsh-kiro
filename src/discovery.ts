@@ -115,15 +115,14 @@ export async function discoverKiroProfileArn(
   const candidates = [...new Set([connection.region, token.region, 'us-east-1', 'eu-central-1']
     .filter((candidate): candidate is string => candidate !== undefined))]
   for (const candidate of candidates) {
-    const endpoint = `https://codewhisperer.${candidate}.amazonaws.com`
+    const endpoint = `https://management.${candidate}.kiro.dev`
     const attempts = [
-      { url: `${endpoint}/ListAvailableProfiles`, headers: authHeaders(token) },
       {
         url: endpoint,
         headers: {
           ...authHeaders(token),
           'content-type': 'application/x-amz-json-1.0',
-          'x-amz-target': 'AmazonCodeWhispererService.ListAvailableProfiles',
+          'x-amz-target': 'KiroControlPlaneBearerService.ListAvailableProfiles',
         },
       },
     ]
@@ -324,9 +323,7 @@ export class KiroModelDiscovery {
   }
 
   private endpoint(region: string): string {
-    return region === 'us-east-1'
-      ? 'https://codewhisperer.us-east-1.amazonaws.com'
-      : `https://q.${region}.amazonaws.com`
+    return `https://management.${region}.kiro.dev`
   }
 
   private headers(token: KiroToken): Record<string, string> {

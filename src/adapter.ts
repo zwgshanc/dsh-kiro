@@ -54,7 +54,6 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 /** User agent Kiro's own IDE sends; the service gates model access on it. */
 const KIRO_USER_AGENT = 'aws-sdk-js/3.738.0 KiroIDE'
-const CODEWHISPERER_TARGET = 'AmazonCodeWhispererStreamingService.GenerateAssistantResponse'
 
 const OFF = ReasoningEffortId('off')
 /** Legacy efforts for configured models that predate live schema discovery. */
@@ -234,11 +233,17 @@ export interface AttachmentStore {
   ) => Promise<{ data: Uint8Array; mediaType: ImageMediaType }>
 }
 
-/** Select the auth-specific upstream surface Kiro accepts. */
-export function kiroRequestEndpoint(token: KiroToken, region: string): string {
-  return token.authMethod === 'idc' || token.authMethod === 'external_idp'
-    ? `https://codewhisperer.${region}.amazonaws.com/generateAssistantResponse`
-    : `https://q.${region}.amazonaws.com/generateAssistantResponse`
+/**
+ * The upstream surface for every request: the Kiro runtime gateway, which the
+ * installed Kiro IDE/CLI also uses. It carries no user-message cap and
+ * requires a resolved CodeWhisperer profile; the legacy CodeWhisperer/Amazon Q
+ * surfaces are retired and never selected.
+ * @param token - the resolved bearer token.
+ * @param region - the request region.
+ * @returns the request URL.
+ */
+export function kiroRequestEndpoint(_token: KiroToken, region: string, _profileArn?: string): string {
+  return `https://runtime.${region}.kiro.dev/generateAssistantResponse`
 }
 
 /** Add the token discriminator required by API-key and external-IdP auth. */
@@ -553,10 +558,16 @@ export class KiroAdapter extends LlmAdapter {
   ): AsyncIterable<StreamChunk> {
     const token = await this.config.resolveToken(connection, signal)
     const profileArn = connection.profileArn ?? token.profileArn
-    const region = profileArn === undefined
-      ? connection.region ?? token.region
-      : profileRegion(profileArn)
-    const url = kiroRequestEndpoint(token, region)
+    if (profileArn === undefined) {
+      // The runtime gateway bills against a CodeWhisperer profile and refuses
+      // requests without one; fail with a clear cause instead of a 400.
+      throw new LlmError(
+        'Kiro runtime requires a CodeWhisperer profileArn; configure dsh-kiro profileArn or fix profile discovery',
+        'INVALID_REQUEST',
+      )
+    }
+    const region = profileRegion(profileArn)
+    const url = kiroRequestEndpoint(token, region, profileArn)
     // Prepared before the transport call so a serialization failure keeps its
     // own diagnosis instead of being relabeled a transport failure.
     const catalog = this.config.currentModels?.(connection) ?? connection.models
@@ -601,7 +612,6 @@ export class KiroAdapter extends LlmAdapter {
         'content-type': 'application/json',
         accept: 'application/vnd.amazon.eventstream',
         authorization: `Bearer ${token.accessToken}`,
-        ...url.includes('://codewhisperer.') ? { 'x-amz-target': CODEWHISPERER_TARGET } : {},
         ...kiroTokenTypeHeaders(token),
         'x-amzn-kiro-agent-mode': 'vibe',
         // Kiro authorizes by client identity: a request whose `user-agent`

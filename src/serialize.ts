@@ -18,7 +18,7 @@
  * @module dsh-kiro/serialize
  */
 
-import { CONTEXT_WINDOW_EXCEEDED_CODE, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type {
   WireHistoryEntry,
@@ -53,38 +53,6 @@ export const ACKNOWLEDGE_PADDING = 'understood'
 export const LEGACY_CONTINUATION = '[system: conversation continues]'
 /** Content for a user turn that carries only tool results. */
 const TOOL_RESULTS_ONLY = 'Tool results provided.'
-/**
- * Kiro serves at most this many user messages per request, counting
- * `currentMessage`. The limit is on message count, not size: 99 history user
- * turns are served at 4 MB while 100 are refused at 139 KB. The service reports
- * the refusal as `Input is too long.` with `CONTENT_LENGTH_EXCEEDS_THRESHOLD`,
- * which reads as a context overflow and is not one — the window is untouched —
- * so no amount of token reduction upstream can clear it.
- *
- * The two callers this limit reaches need opposite responses, both wired
- * below rather than in this constant:
- *
- * - An ordinary turn must not silently lose the oldest exchanges every time it
- *   crosses the limit — an agentic session with many small tool-call turns
- *   reaches 100 messages at a small fraction of the token window (a recorded
- *   session hit it at 19%), long before real compaction would ever trigger on
- *   size, and every later turn would keep re-truncating the same way forever.
- *   So an over-limit ordinary request throws `CONTEXT_WINDOW_EXCEEDED_CODE`
- *   instead of building one: the harness's existing overflow recovery reacts
- *   to that code by summarizing the surface with a real model call, which
- *   collapses the compacted span to one node and brings the *next* request
- *   back under the limit — the same recovery this code already drives for a
- *   genuine token overflow, just triggered before a doomed request is sent.
- * - The compaction summarizer's own request carries that same oversized span
- *   as `messages` (that is what it is summarizing), so it cannot be refused
- *   the same way without the recovery it drives being unable to run at all.
- *   `capHistory` below is its last resort: keep the newest exchanges, drop
- *   the rest behind one tombstone turn, and let the summary that comes back
- *   cover slightly less than the full span rather than fail outright.
- */
-const MAX_USER_MESSAGES = 100
-/** History alternates user-first, so each retained user turn costs two entries. */
-const MAX_HISTORY_ENTRIES = (MAX_USER_MESSAGES - 1) * 2
 /** Tool names CodeWhisperer accepts verbatim. */
 const TOOL_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
 
@@ -430,6 +398,7 @@ function foldTurns(
   return turns
 }
 
+
 /**
  * Build one wire user message.
  * @param turn - the folded user turn.
@@ -454,75 +423,6 @@ function userMessage(
   }
 }
 
-/**
- * Drop the oldest turns until the history fits Kiro's user-message cap,
- * replacing what was dropped with one tombstone turn.
- *
- * Reserved for the compaction summarizer's own request (`purpose: 'compaction'`):
- * every other caller throws instead of reaching here, so that an ordinary turn
- * drives real summarization rather than quietly losing the same span forever.
- * See {@link MAX_USER_MESSAGES}. Keeping the newest exchanges and marking the
- * loss here is the installed client's own last-resort policy, down to the
- * wording: its overflow handler discards oldest-first and leaves the same
- * notice.
- * @param history - alternating history, user-first and even in length.
- * @param model - wire model id repeated on every user turn.
- * @returns the same entries when they fit, else the capped replacement.
- */
-function capHistory(
-  history: readonly WireHistoryEntry[],
-  model: string,
-): WireHistoryEntry[] {
-  if (history.length <= MAX_HISTORY_ENTRIES) return [...history]
-  // The tombstone turn spends one user and one assistant slot of the budget.
-  const kept = history.slice(history.length - (MAX_HISTORY_ENTRIES - 2))
-  const issued = new Set(kept.flatMap(entry =>
-    'assistantResponseMessage' in entry
-      ? (entry.assistantResponseMessage.toolUses ?? []).map(use => use.toolUseId)
-      : []))
-  // A result whose issuing call was just dropped is one the service rejects, so
-  // it degrades to text on its own turn rather than being discarded with the
-  // call — the same trade the current turn already makes for its own orphans.
-  const repaired = kept.map((entry): WireHistoryEntry => {
-    if (!('userInputMessage' in entry)) return entry
-    const results = entry.userInputMessage.userInputMessageContext?.toolResults ?? []
-    const orphaned = results.filter(result => !issued.has(result.toolUseId))
-    if (orphaned.length === 0) return entry
-    const matched = results.filter(result => issued.has(result.toolUseId))
-    const { userInputMessageContext: previous, ...rest } = entry.userInputMessage
-    const { toolResults: _replaced, ...context } = previous ?? {}
-    return {
-      userInputMessage: {
-        ...rest,
-        content: orphaned.reduce(
-          (accumulated, result) =>
-            `${accumulated}\n\n[Output for tool call ${result.toolUseId}]:\n${result.content[0]?.text ?? ''}`,
-          entry.userInputMessage.content,
-        ),
-        ...matched.length === 0 && Object.keys(context).length === 0
-          ? {}
-          : {
-            userInputMessageContext: {
-              ...context,
-              ...matched.length > 0 ? { toolResults: matched } : {},
-            },
-          },
-      },
-    }
-  })
-  const discarded = history.length - kept.length
-  return [
-    {
-      userInputMessage: userMessage({
-        text: `[Context was automatically truncated due to size limits. ${String(discarded)} earlier messages were discarded to fit within the model's context window. The conversation continues from the most recent exchange.]`,
-        toolResults: [],
-        images: [],
-      }, model),
-    },
-    { assistantResponseMessage: { content: ACKNOWLEDGE_PADDING } },
-    ...repaired,
-  ]
-}
 
 /**
  * Build the complete wire request.
@@ -540,9 +440,8 @@ function capHistory(
  * @param images - wire images already read for this request, by attachment id.
  * @returns the request body.
  * @throws `LlmError` when an image cannot be placed, a tool name is unusable,
- *   an effort is unsupported, a generation option is unusable, there are no
- *   messages at all, or (`CONTEXT_WINDOW_EXCEEDED_CODE`, for every purpose
- *   but `'compaction'`) the folded history exceeds Kiro's user-message cap.
+ *   an effort is unsupported, a generation option is unusable, or there are no
+ *   messages at all.
  */
 export function serializeRequest(
   options: GenerateOptions,
@@ -603,27 +502,12 @@ export function serializeRequest(
     history.push({ assistantResponseMessage: { content: ACKNOWLEDGE_PADDING } })
   }
 
-  // Capped before the current turn is matched against it: a call the cap just
-  // dropped must not leave its result addressed to a turn no longer sent.
-  //
-  // Only the compaction summarizer's own request is allowed past the limit by
-  // truncating: every other caller throws here instead, so the harness's
-  // overflow recovery runs a real summarization rather than this request
-  // silently losing the same span on every future turn. See `MAX_USER_MESSAGES`.
-  let capped: WireHistoryEntry[]
-  if (history.length <= MAX_HISTORY_ENTRIES) {
-    capped = history
-  } else if (options.purpose === 'compaction') {
-    capped = capHistory(history, options.model)
-  } else {
-    throw new LlmError(
-      `Kiro serves at most ${String(MAX_USER_MESSAGES)} user messages per request; `
-      + 'this conversation has grown past that and needs to be compacted before it can continue',
-      CONTEXT_WINDOW_EXCEEDED_CODE,
-    )
-  }
-
-  const issued = new Set(capped.flatMap(entry =>
+  // Tool results travel on their issuing user turn; the service rejects a
+  // result whose call no history entry issued, so orphaned current-turn
+  // results degrade to text below. The Kiro runtime gateway carries no
+  // user-message cap (verified to 1000 turns), so history is sent as folded —
+  // token-pressure compaction (80% of the window) bounds how large it grows.
+  const issued = new Set(history.flatMap(entry =>
     'assistantResponseMessage' in entry
       ? (entry.assistantResponseMessage.toolUses ?? []).map(use => use.toolUseId)
       : []))
@@ -661,7 +545,7 @@ export function serializeRequest(
   if (system.length > 0) {
     // Kiro has no system slot: the prompt rides on the earliest user turn so
     // it stays at the front of the model's context and inside the cached prefix.
-    const first = capped.find((entry): entry is { userInputMessage: WireUserInputMessage } =>
+    const first = history.find((entry): entry is { userInputMessage: WireUserInputMessage } =>
       'userInputMessage' in entry)
     if (first === undefined) {
       currentMessage.content = `${system}\n\n${currentMessage.content}`
@@ -683,7 +567,7 @@ export function serializeRequest(
       chatTriggerType: 'MANUAL',
       conversationId,
       currentMessage: { userInputMessage: currentMessage },
-      ...capped.length > 0 ? { history: capped } : {},
+      ...history.length > 0 ? { history } : {},
     },
   }
 }

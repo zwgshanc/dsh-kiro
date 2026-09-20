@@ -387,6 +387,7 @@ describe('serializeRequest', () => {
   })
 })
 
+
 describe('serializeRequest user-message cap', () => {
   /** `n` complete user/assistant exchanges, newest last. */
   function exchanges(n: number): Message[] {
@@ -403,60 +404,58 @@ describe('serializeRequest user-message cap', () => {
     return history.filter(entry => 'userInputMessage' in entry).length + 1
   }
 
-  it('leaves a history that already fits untouched', () => {
-    // 99 exchanges plus a closing ask is exactly the 100-message budget.
-    const request = serialize([...exchanges(99), user('now answer')])
-    expect(request.conversationState.history).toHaveLength(198)
-    expect(userMessageCount(request)).toBe(100)
+  it('sends history as folded with no message-count handling', () => {
+    // The Kiro runtime gateway carries no user-message cap, so every folded
+    // turn is sent as-is; nothing is packed, capped, or thrown away.
+    const request = serialize([...exchanges(80), user('now answer')])
+    expect(request.conversationState.history).toHaveLength(160)
+    expect(userMessageCount(request)).toBe(81)
     expect(request.conversationState.history?.[0])
       .toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 0' }) })
   })
 
-  it('throws CONTEXT_WINDOW_EXCEEDED for an ordinary turn over the budget', () => {
-    // Silently truncating an ordinary turn would keep re-truncating the same
-    // way on every later turn, since the cap counts messages rather than
-    // tokens and never lets the reported window usage fall. Throwing drives
-    // the harness's real overflow recovery instead of standing in for it.
-    expect(() => serialize([...exchanges(150), user('now answer')]))
-      .toThrowError(expect.objectContaining({ code: 'CONTEXT_WINDOW_EXCEEDED' }))
+  it('sends a long folded history verbatim without throwing', () => {
+    const request = serialize([...exchanges(150), user('now answer')])
+    const history = request.conversationState.history ?? []
+    expect(history).toHaveLength(300)
+    expect(userMessageCount(request)).toBe(151)
+    expect(history[0]).toEqual({
+      userInputMessage: expect.objectContaining({ content: 'ask 0' }),
+    })
+    expect(history.at(-1)).toEqual({ assistantResponseMessage: { content: 'answer 149' } })
   })
 
-  it('throws the same way for a session-title request over the budget', () => {
-    expect(() => serialize([...exchanges(150), user('now answer')], { purpose: 'session-title' }))
-      .toThrowError(expect.objectContaining({ code: 'CONTEXT_WINDOW_EXCEEDED' }))
+  it('sends the same folded history for a session-title request', () => {
+    const request = serialize([...exchanges(150), user('now answer')], { purpose: 'session-title' })
+    expect(userMessageCount(request)).toBe(151)
   })
 
-  describe('the compaction summarizer request, which must not be refused the same way', () => {
-    /** The summarizer is the one caller allowed past the budget, by truncating. */
+  describe('the compaction summarizer request', () => {
     function compact(messages: Message[], extra: Partial<GenerateOptions> = {}) {
       return serialize(messages, { ...extra, purpose: 'compaction' })
     }
 
-    it('caps a longer history at the budget and keeps the newest exchanges', () => {
+    it('sends every exchange verbatim, newest last', () => {
       const request = compact([...exchanges(150), user('now answer')])
       const history = request.conversationState.history ?? []
-      expect(history).toHaveLength(198)
-      expect(userMessageCount(request)).toBe(100)
-      // Oldest dropped, newest retained verbatim.
+      expect(history).toHaveLength(300)
+      expect(userMessageCount(request)).toBe(151)
       expect(history.at(-2)).toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 149' }) })
       expect(history.at(-1)).toEqual({ assistantResponseMessage: { content: 'answer 149' } })
-      expect(JSON.stringify(history)).not.toContain('ask 0"')
+      expect(JSON.stringify(history)).not.toContain('condensed')
+      expect(JSON.stringify(history)).not.toContain('automatically truncated')
     })
 
-    it('replaces the dropped prefix with one tombstone turn naming the count', () => {
+    it('keeps each turn a separate entry, no condensed block', () => {
       const request = compact([...exchanges(150), user('now answer')])
       const first = request.conversationState.history?.[0]
       expect(first).toEqual({
-        userInputMessage: expect.objectContaining({
-          content: expect.stringContaining('Context was automatically truncated'),
-        }),
+        userInputMessage: expect.objectContaining({ content: 'ask 0' }),
       })
-      const content = (first as { userInputMessage: WireUserInputMessage }).userInputMessage.content
-      // 300 folded entries capped to 196 kept leaves 104 discarded.
-      expect(content).toContain('104 earlier messages were discarded')
       expect(request.conversationState.history?.[1]).toEqual({
-        assistantResponseMessage: { content: 'understood' },
+        assistantResponseMessage: { content: 'answer 0' },
       })
+      expect(JSON.stringify(request.conversationState.history)).not.toContain('Earlier conversation condensed')
     })
 
     it('still prepends the system prompt to the first history turn after capping', () => {
@@ -496,6 +495,43 @@ describe('serializeRequest user-message cap', () => {
       history.forEach((entry, index) => {
         expect('userInputMessage' in entry).toBe(index % 2 === 0)
       })
+    })
+
+    it('keeps single-step tool rounds structured under the wire cap', () => {
+      const messages: Message[] = []
+      for (let index = 0; index < 82; index += 1) {
+        messages.push(
+          user(`task ${String(index)}`),
+          assistant('', [{ id: `c${index}`, name: 'read', args: '{}' }]),
+          toolResult(`c${index}`, `OUTPUT ${String(index)}`),
+        )
+      }
+      messages.push(user('now answer'))
+      const request = compact(messages)
+      const history = request.conversationState.history ?? []
+      // 82 single-step rounds stay step-wise (the round boundary detector sees
+      // one in-flight round), well under the 100-message cap — no packing, no
+      // condensing, nothing dropped.
+      expect(history).toHaveLength(164)
+      expect(userMessageCount(request)).toBe(83)
+      expect(JSON.stringify(history)).not.toContain('condensed')
+      expect(JSON.stringify(history)).not.toContain('automatically truncated')
+
+      // The structured history starts on a user turn and alternates.
+      history.forEach((entry, index) => {
+        expect('userInputMessage' in entry).toBe(index % 2 === 0)
+      })
+      // Every surviving structured tool result still matches an issued call.
+      const issued = new Set(history.flatMap(entry =>
+        'assistantResponseMessage' in entry
+          ? (entry.assistantResponseMessage.toolUses ?? []).map(use => use.toolUseId)
+          : []))
+      for (const entry of history) {
+        if (!('userInputMessage' in entry)) continue
+        for (const result of entry.userInputMessage.userInputMessageContext?.toolResults ?? []) {
+          expect(issued.has(result.toolUseId)).toBe(true)
+        }
+      }
     })
   })
 })

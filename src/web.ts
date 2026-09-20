@@ -24,14 +24,12 @@ import {
 } from './login.ts'
 import type { DeviceLoginPoll, ManagedCredentials, RefreshTokenOrigin } from './login.ts'
 import { getJson, postJson } from './transport.ts'
-import type { KiroUsageService } from './usage.ts'
 
 interface WebDependencies {
   managedDirectory: string
   options: () => KiroConnectionOptions
   discovery: KiroModelDiscovery
   modelSettings: FileModelSettingsStore
-  usage: KiroUsageService
   resolveToken: (connection: KiroConnectionOptions, signal: AbortSignal) => Promise<KiroToken>
 }
 
@@ -180,7 +178,6 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
         cached === undefined ? 'configured' : 'live',
         dependencies.modelSettings,
       ),
-      usage: undefined,
     }
   }
 
@@ -205,7 +202,6 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
     }
     await saveManagedCredentials(dependencies.managedDirectory, complete)
     dependencies.discovery.clear()
-    dependencies.usage.clear()
     emitUpdated()
   }
 
@@ -416,7 +412,6 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
               login = undefined
               await deleteDeviceCredentials(dependencies.managedDirectory)
               dependencies.discovery.clear()
-              dependencies.usage.clear()
               emitUpdated()
               sendJson(response, 200, { ok: true, value: await status() })
               return
@@ -465,10 +460,6 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
                 ok: true,
                 value: await modelPayload(models, 'live', dependencies.modelSettings),
               })
-              return
-            }
-            if (path === 'usage' && (request.method === 'GET' || request.method === 'POST')) {
-              sendJson(response, 200, { ok: true, value: null })
               return
             }
             if (['GET', 'POST'].includes(request.method ?? '')) {
