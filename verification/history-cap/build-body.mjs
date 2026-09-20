@@ -12,9 +12,17 @@
  *   STOP_AT      'overflow' cuts at the first "Input is too long" event,
  *                a number cuts at that event index, 'end' uses the whole log
  *                (default 'overflow')
+ *   PURPOSE      'compaction' builds the summarizer's own request, the one
+ *                caller `serializeRequest` still truncates past the cap;
+ *                anything else (default) builds an ordinary turn, which
+ *                throws instead once history exceeds it — expected, and
+ *                reported rather than treated as a script failure, since a
+ *                session recorded before the fix is exactly the shape whose
+ *                ordinary turns must now throw rather than build.
  *
  * Usage:
  *   DSH_DATA=~/.dsh SESSION=.../session.v3.jsonl.zstd node build-body.mjs
+ *   DSH_DATA=~/.dsh SESSION=... PURPOSE=compaction node build-body.mjs
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -78,20 +86,36 @@ if (header === undefined) {
   process.exit(1)
 }
 
-const request = serializeRequest(
-  {
-    provider: 'kiro',
-    model: header.config.model,
-    messages,
-    tools: header.tools ?? [],
-    ...header.system === undefined || header.system === '' ? {} : { system: header.system },
-    ...header.config.maxTokens === undefined ? {} : { maxTokens: header.config.maxTokens },
-    ...header.config.reasoningEffort === undefined ? {} : { reasoningEffort: header.config.reasoningEffort },
-  },
-  {},
-  'verification-history-cap',
-  process.env.PROFILE_ARN,
-)
+const purpose = process.env.PURPOSE
+
+let request
+try {
+  request = serializeRequest(
+    {
+      provider: 'kiro',
+      model: header.config.model,
+      messages,
+      tools: header.tools ?? [],
+      ...header.system === undefined || header.system === '' ? {} : { system: header.system },
+      ...header.config.maxTokens === undefined ? {} : { maxTokens: header.config.maxTokens },
+      ...header.config.reasoningEffort === undefined ? {} : { reasoningEffort: header.config.reasoningEffort },
+      ...purpose === undefined ? {} : { purpose },
+    },
+    {},
+    'verification-history-cap',
+    process.env.PROFILE_ARN,
+  )
+} catch (error) {
+  if (error?.code === 'CONTEXT_WINDOW_EXCEEDED' && purpose === undefined) {
+    console.log('serializeRequest threw CONTEXT_WINDOW_EXCEEDED, as an ordinary turn now should')
+    console.log('this session has more history than Kiro\'s per-request message cap; that is the')
+    console.log('point of the fix -- it drives the harness\'s real compaction instead of building')
+    console.log('a request. Rerun with PURPOSE=compaction to build the summarizer\'s own request,')
+    console.log('the one caller serializeRequest still truncates past the cap.')
+    process.exit(0)
+  }
+  throw error
+}
 
 const body = JSON.stringify(request)
 writeFileSync(out, body)

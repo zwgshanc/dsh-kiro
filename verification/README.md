@@ -55,6 +55,19 @@ synthetic turns; this harness does the other half — it rebuilds the request an
 actual recorded session produced and replays it, which is how a report of
 "the session just dies" gets turned into a body you can A/B.
 
+Crossing the cap gets two different responses depending on who is asking, and
+this harness can build either. An ordinary turn throws `CONTEXT_WINDOW_EXCEEDED`
+instead of building a request, which drives the harness's existing overflow
+recovery into a real summarization. The compaction summarizer's own request is
+the one caller allowed past the cap, by truncating with a tombstone — it has
+to be, since it carries the same oversized span it is summarizing. An earlier
+version of this fix truncated for *every* caller; that kept ordinary requests
+succeeding, but permanently: Kiro's reported context-usage percentage
+plateaued at whatever the truncated window happened to cost (16–24% across
+several real sessions) and never reached the threshold that would trigger a
+real summarization, so the same span of history was silently re-dropped on
+every later turn, forever, invisibly to DSH's own bookkeeping.
+
 Requires Node with TypeScript type stripping (22.6+), because `build-body.mjs`
 imports `src/serialize.ts` directly — `serializeRequest` is not part of the
 package's public exports.
@@ -75,7 +88,12 @@ PROFILE_ARN=arn:aws:codewhisperer:<region>:<account>:profile/<id> \
 whole log. `DSH_DATA` is only needed for two modules that ship with DSH rather
 than with this package (the session log's zstd reader and `deriveEventMessage`).
 
-It reports the shape that matters and writes `wire-body.json`:
+By default this builds an ordinary turn, which — for a session recorded before
+the fix, over the cap by construction — now throws `CONTEXT_WINDOW_EXCEEDED`
+rather than writing a body; the script reports that and exits 0, since it is
+the point of the fix, not a script failure. Set `PURPOSE=compaction` to build
+the summarizer's own request instead, the one caller still allowed past the
+cap, which reports the shape that matters and writes `wire-body.json`:
 
 ```
 history entries     : 198
