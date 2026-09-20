@@ -105,7 +105,8 @@ export type PreparedImages = ReadonlyMap<string, WireImageBlock>;
  * @param images - wire images already read for this request, by attachment id.
  * @returns the request body.
  * @throws `LlmError` when an image cannot be placed, a tool name is unusable,
- *   an effort is unsupported, a generation option is unusable, or there are no
- *   messages at all.
+ *   an effort is unsupported, a generation option is unusable, there are no
+ *   messages at all, or (`CONTEXT_WINDOW_EXCEEDED_CODE`, for every purpose
+ *   but `'compaction'`) the folded history exceeds Kiro's user-message cap.
  */
 export declare function serializeRequest(options: GenerateOptions, defaults: RequestDefaults, conversationId: string, profileArn?: string, nativeEffort?: NativeEffortConfig, limits?: ModelLimits, images?: PreparedImages): WireRequest;

@@ -412,69 +412,90 @@ describe('serializeRequest user-message cap', () => {
       .toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 0' }) })
   })
 
-  it('caps a longer history at the budget and keeps the newest exchanges', () => {
-    const request = serialize([...exchanges(150), user('now answer')])
-    const history = request.conversationState.history ?? []
-    expect(history).toHaveLength(198)
-    expect(userMessageCount(request)).toBe(100)
-    // Oldest dropped, newest retained verbatim.
-    expect(history.at(-2)).toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 149' }) })
-    expect(history.at(-1)).toEqual({ assistantResponseMessage: { content: 'answer 149' } })
-    expect(JSON.stringify(history)).not.toContain('ask 0"')
+  it('throws CONTEXT_WINDOW_EXCEEDED for an ordinary turn over the budget', () => {
+    // Silently truncating an ordinary turn would keep re-truncating the same
+    // way on every later turn, since the cap counts messages rather than
+    // tokens and never lets the reported window usage fall. Throwing drives
+    // the harness's real overflow recovery instead of standing in for it.
+    expect(() => serialize([...exchanges(150), user('now answer')]))
+      .toThrowError(expect.objectContaining({ code: 'CONTEXT_WINDOW_EXCEEDED' }))
   })
 
-  it('replaces the dropped prefix with one tombstone turn naming the count', () => {
-    const request = serialize([...exchanges(150), user('now answer')])
-    const first = request.conversationState.history?.[0]
-    expect(first).toEqual({
-      userInputMessage: expect.objectContaining({
-        content: expect.stringContaining('Context was automatically truncated'),
-      }),
-    })
-    const content = (first as { userInputMessage: WireUserInputMessage }).userInputMessage.content
-    // 300 folded entries capped to 196 kept leaves 104 discarded.
-    expect(content).toContain('104 earlier messages were discarded')
-    expect(request.conversationState.history?.[1]).toEqual({
-      assistantResponseMessage: { content: 'understood' },
-    })
+  it('throws the same way for a session-title request over the budget', () => {
+    expect(() => serialize([...exchanges(150), user('now answer')], { purpose: 'session-title' }))
+      .toThrowError(expect.objectContaining({ code: 'CONTEXT_WINDOW_EXCEEDED' }))
   })
 
-  it('still prepends the system prompt to the first history turn after capping', () => {
-    const request = serialize([...exchanges(150), user('now answer')], { system: 'BE TERSE' })
-    const first = request.conversationState.history?.[0] as { userInputMessage: WireUserInputMessage }
-    expect(first.userInputMessage.content.startsWith('BE TERSE')).toBe(true)
-  })
-
-  it('degrades a tool result whose issuing call the cap dropped', () => {
-    // The oldest exchange issues a call whose result arrives in the next turn,
-    // so capping can separate them; the surviving result must not stay
-    // addressed to a call the service no longer sees.
-    const messages: Message[] = [
-      user('start'),
-      assistant('', [{ id: 'call-old', name: 'read', args: '{}' }]),
-      toolResult('call-old', 'OLD TOOL OUTPUT'),
-      ...exchanges(150),
-      user('now answer'),
-    ]
-    const request = serialize(messages)
-    const history = request.conversationState.history ?? []
-    const issued = new Set(history.flatMap(entry =>
-      'assistantResponseMessage' in entry
-        ? (entry.assistantResponseMessage.toolUses ?? []).map(use => use.toolUseId)
-        : []))
-    for (const entry of history) {
-      if (!('userInputMessage' in entry)) continue
-      for (const result of entry.userInputMessage.userInputMessageContext?.toolResults ?? []) {
-        expect(issued.has(result.toolUseId)).toBe(true)
-      }
+  describe('the compaction summarizer request, which must not be refused the same way', () => {
+    /** The summarizer is the one caller allowed past the budget, by truncating. */
+    function compact(messages: Message[], extra: Partial<GenerateOptions> = {}) {
+      return serialize(messages, { ...extra, purpose: 'compaction' })
     }
-  })
 
-  it('keeps history alternating and even after capping', () => {
-    const history = serialize([...exchanges(150), user('now answer')]).conversationState.history ?? []
-    expect(history.length % 2).toBe(0)
-    history.forEach((entry, index) => {
-      expect('userInputMessage' in entry).toBe(index % 2 === 0)
+    it('caps a longer history at the budget and keeps the newest exchanges', () => {
+      const request = compact([...exchanges(150), user('now answer')])
+      const history = request.conversationState.history ?? []
+      expect(history).toHaveLength(198)
+      expect(userMessageCount(request)).toBe(100)
+      // Oldest dropped, newest retained verbatim.
+      expect(history.at(-2)).toEqual({ userInputMessage: expect.objectContaining({ content: 'ask 149' }) })
+      expect(history.at(-1)).toEqual({ assistantResponseMessage: { content: 'answer 149' } })
+      expect(JSON.stringify(history)).not.toContain('ask 0"')
+    })
+
+    it('replaces the dropped prefix with one tombstone turn naming the count', () => {
+      const request = compact([...exchanges(150), user('now answer')])
+      const first = request.conversationState.history?.[0]
+      expect(first).toEqual({
+        userInputMessage: expect.objectContaining({
+          content: expect.stringContaining('Context was automatically truncated'),
+        }),
+      })
+      const content = (first as { userInputMessage: WireUserInputMessage }).userInputMessage.content
+      // 300 folded entries capped to 196 kept leaves 104 discarded.
+      expect(content).toContain('104 earlier messages were discarded')
+      expect(request.conversationState.history?.[1]).toEqual({
+        assistantResponseMessage: { content: 'understood' },
+      })
+    })
+
+    it('still prepends the system prompt to the first history turn after capping', () => {
+      const request = compact([...exchanges(150), user('now answer')], { system: 'BE TERSE' })
+      const first = request.conversationState.history?.[0] as { userInputMessage: WireUserInputMessage }
+      expect(first.userInputMessage.content.startsWith('BE TERSE')).toBe(true)
+    })
+
+    it('degrades a tool result whose issuing call the cap dropped', () => {
+      // The oldest exchange issues a call whose result arrives in the next turn,
+      // so capping can separate them; the surviving result must not stay
+      // addressed to a call the service no longer sees.
+      const messages: Message[] = [
+        user('start'),
+        assistant('', [{ id: 'call-old', name: 'read', args: '{}' }]),
+        toolResult('call-old', 'OLD TOOL OUTPUT'),
+        ...exchanges(150),
+        user('now answer'),
+      ]
+      const request = compact(messages)
+      const history = request.conversationState.history ?? []
+      const issued = new Set(history.flatMap(entry =>
+        'assistantResponseMessage' in entry
+          ? (entry.assistantResponseMessage.toolUses ?? []).map(use => use.toolUseId)
+          : []))
+      for (const entry of history) {
+        if (!('userInputMessage' in entry)) continue
+        for (const result of entry.userInputMessage.userInputMessageContext?.toolResults ?? []) {
+          expect(issued.has(result.toolUseId)).toBe(true)
+        }
+      }
+    })
+
+    it('keeps history alternating and even after capping', () => {
+      const history = compact([...exchanges(150), user('now answer')]).conversationState.history ?? []
+      expect(history.length % 2).toBe(0)
+      history.forEach((entry, index) => {
+        expect('userInputMessage' in entry).toBe(index % 2 === 0)
+      })
     })
   })
 })

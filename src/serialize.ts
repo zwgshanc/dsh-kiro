@@ -18,7 +18,7 @@
  * @module dsh-kiro/serialize
  */
 
-import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type {
   WireHistoryEntry,
@@ -59,8 +59,28 @@ const TOOL_RESULTS_ONLY = 'Tool results provided.'
  * turns are served at 4 MB while 100 are refused at 139 KB. The service reports
  * the refusal as `Input is too long.` with `CONTENT_LENGTH_EXCEEDS_THRESHOLD`,
  * which reads as a context overflow and is not one — the window is untouched —
- * so no amount of token reduction upstream can clear it, and a summarization
- * that replays the same history is refused for the same reason.
+ * so no amount of token reduction upstream can clear it.
+ *
+ * The two callers this limit reaches need opposite responses, both wired
+ * below rather than in this constant:
+ *
+ * - An ordinary turn must not silently lose the oldest exchanges every time it
+ *   crosses the limit — an agentic session with many small tool-call turns
+ *   reaches 100 messages at a small fraction of the token window (a recorded
+ *   session hit it at 19%), long before real compaction would ever trigger on
+ *   size, and every later turn would keep re-truncating the same way forever.
+ *   So an over-limit ordinary request throws `CONTEXT_WINDOW_EXCEEDED_CODE`
+ *   instead of building one: the harness's existing overflow recovery reacts
+ *   to that code by summarizing the surface with a real model call, which
+ *   collapses the compacted span to one node and brings the *next* request
+ *   back under the limit — the same recovery this code already drives for a
+ *   genuine token overflow, just triggered before a doomed request is sent.
+ * - The compaction summarizer's own request carries that same oversized span
+ *   as `messages` (that is what it is summarizing), so it cannot be refused
+ *   the same way without the recovery it drives being unable to run at all.
+ *   `capHistory` below is its last resort: keep the newest exchanges, drop
+ *   the rest behind one tombstone turn, and let the summary that comes back
+ *   cover slightly less than the full span rather than fail outright.
  */
 const MAX_USER_MESSAGES = 100
 /** History alternates user-first, so each retained user turn costs two entries. */
@@ -438,11 +458,13 @@ function userMessage(
  * Drop the oldest turns until the history fits Kiro's user-message cap,
  * replacing what was dropped with one tombstone turn.
  *
- * Keeping the newest exchanges and marking the loss is the installed client's
- * own last-resort policy, down to the wording: its overflow handler discards
- * oldest-first and leaves the same notice. Nothing upstream can substitute for
- * this, because the cap counts messages rather than tokens — compaction lowers
- * the token count but sends its summarization request through this same history.
+ * Reserved for the compaction summarizer's own request (`purpose: 'compaction'`):
+ * every other caller throws instead of reaching here, so that an ordinary turn
+ * drives real summarization rather than quietly losing the same span forever.
+ * See {@link MAX_USER_MESSAGES}. Keeping the newest exchanges and marking the
+ * loss here is the installed client's own last-resort policy, down to the
+ * wording: its overflow handler discards oldest-first and leaves the same
+ * notice.
  * @param history - alternating history, user-first and even in length.
  * @param model - wire model id repeated on every user turn.
  * @returns the same entries when they fit, else the capped replacement.
@@ -518,8 +540,9 @@ function capHistory(
  * @param images - wire images already read for this request, by attachment id.
  * @returns the request body.
  * @throws `LlmError` when an image cannot be placed, a tool name is unusable,
- *   an effort is unsupported, a generation option is unusable, or there are no
- *   messages at all.
+ *   an effort is unsupported, a generation option is unusable, there are no
+ *   messages at all, or (`CONTEXT_WINDOW_EXCEEDED_CODE`, for every purpose
+ *   but `'compaction'`) the folded history exceeds Kiro's user-message cap.
  */
 export function serializeRequest(
   options: GenerateOptions,
@@ -582,7 +605,23 @@ export function serializeRequest(
 
   // Capped before the current turn is matched against it: a call the cap just
   // dropped must not leave its result addressed to a turn no longer sent.
-  const capped = capHistory(history, options.model)
+  //
+  // Only the compaction summarizer's own request is allowed past the limit by
+  // truncating: every other caller throws here instead, so the harness's
+  // overflow recovery runs a real summarization rather than this request
+  // silently losing the same span on every future turn. See `MAX_USER_MESSAGES`.
+  let capped: WireHistoryEntry[]
+  if (history.length <= MAX_HISTORY_ENTRIES) {
+    capped = history
+  } else if (options.purpose === 'compaction') {
+    capped = capHistory(history, options.model)
+  } else {
+    throw new LlmError(
+      `Kiro serves at most ${String(MAX_USER_MESSAGES)} user messages per request; `
+      + 'this conversation has grown past that and needs to be compacted before it can continue',
+      CONTEXT_WINDOW_EXCEEDED_CODE,
+    )
+  }
 
   const issued = new Set(capped.flatMap(entry =>
     'assistantResponseMessage' in entry

@@ -2,13 +2,20 @@
  * Live probe: Kiro serves at most 100 user messages per request, counting
  * `currentMessage`, and refuses the 101st as `Input is too long.` with
  * `CONTENT_LENGTH_EXCEEDS_THRESHOLD`. The name is misleading — the limit counts
- * messages, not size — so this pins the boundary against the real service and
- * proves `serializeRequest` now stays inside it for a conversation of any
- * length. Runs with KIRO_LIVE=1.
+ * messages, not size — so this pins the boundary against the real service.
+ *
+ * A conversation that grows past the cap needs two different responses
+ * (`tests/serialize.spec.ts` covers both as pure unit tests; this proves the
+ * one that reaches the network actually works against the live service): an
+ * ordinary turn throws instead of building a request, so the harness's
+ * existing overflow recovery runs a real summarization rather than the same
+ * span being silently re-dropped on every later turn; the compaction
+ * summarizer's own request is the one caller allowed past the cap, by
+ * truncating with a tombstone. Runs with KIRO_LIVE=1.
  */
 import { describe, expect, it } from 'vitest'
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { conversationIdFor, kiroRequestEndpoint, kiroTokenTypeHeaders } from '../src/adapter.ts'
 import { kiroCredentialDirectory, resolveTokenFromDirectories } from '../src/auth.ts'
 import { discoverKiroProfileArn } from '../src/discovery.ts'
@@ -95,7 +102,7 @@ describe.runIf(process.env.KIRO_LIVE === '1')('live Kiro history user-message ca
       return messages
     }
 
-    const build = (turns: number): WireRequest => serializeRequest(
+    const build = (turns: number, purpose?: GenerateOptions['purpose']): WireRequest => serializeRequest(
       {
         provider: 'kiro',
         model: MODEL,
@@ -103,6 +110,7 @@ describe.runIf(process.env.KIRO_LIVE === '1')('live Kiro history user-message ca
           ...exchanges(turns),
           createUserMessage({ content: [{ type: 'text', text: 'Reply with only: ok' }], source: SOURCE }),
         ],
+        ...purpose === undefined ? {} : { purpose },
       },
       {},
       conversationIdFor(`history-cap-${String(turns)}`),
@@ -132,10 +140,16 @@ describe.runIf(process.env.KIRO_LIVE === '1')('live Kiro history user-message ca
     expect(refused.status).toBe(400)
     expect(refused.overflow).toBe(true)
 
-    // A conversation far past the cap must still serialize inside it.
-    const capped = build(400)
+    // An ordinary turn (no purpose) this far past the cap must not build a
+    // request at all — see tests/serialize.spec.ts for the exhaustive version
+    // of this assertion; this just confirms the live build path agrees.
+    expect(() => build(400)).toThrowError(expect.objectContaining({ code: 'CONTEXT_WINDOW_EXCEEDED' }))
+
+    // The compaction summarizer's own request, this far past the cap, is the
+    // one caller allowed through by truncating, and it must still serialize.
+    const capped = build(400, 'compaction')
     expect(capped.conversationState.history).toHaveLength(198)
-    const cappedServed = await attempt('serializer-capped (400 turns in)', capped)
+    const cappedServed = await attempt('compaction request, serializer-capped (400 turns in)', capped)
     expect(cappedServed.status).toBe(200)
   }, 600_000)
 })
