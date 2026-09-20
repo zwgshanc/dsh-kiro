@@ -104,6 +104,63 @@ function authHeaders(token: KiroToken): Record<string, string> {
   }
 }
 
+/**
+ * Fetch all available CodeWhisperer profile ARNs for one OAuth credential.
+ * Returns every valid ARN found, with the best match (token-region or first)
+ * listed first. Returns an empty array for api_key credentials or on failure.
+ */
+export async function listKiroProfiles(
+  connection: Pick<KiroConnectionOptions, 'region' | 'proxyUrl'>,
+  token: KiroToken,
+  signal: AbortSignal,
+  request: ProfileDiscoveryRequest = postJsonWithHeaders,
+): Promise<string[]> {
+  if (token.authMethod === 'api_key') return []
+  const candidates = [...new Set([connection.region, token.region, 'us-east-1', 'eu-central-1']
+    .filter((candidate): candidate is string => candidate !== undefined))]
+  for (const candidate of candidates) {
+    const endpoint = `https://management.${candidate}.kiro.dev`
+    let response: { status: number; body: unknown }
+    try {
+      response = await request(
+        endpoint,
+        { maxResults: 10 },
+        {
+          ...authHeaders(token),
+          'content-type': 'application/x-amz-json-1.0',
+          'x-amz-target': 'KiroControlPlaneBearerService.ListAvailableProfiles',
+        },
+        connection.proxyUrl,
+        signal,
+      )
+    } catch {
+      continue
+    }
+    if (response.status !== 200) continue
+    const profiles = record(response.body)?.profiles
+    if (!Array.isArray(profiles)) continue
+    const valid: string[] = []
+    for (const raw of profiles) {
+      const value = record(raw)
+      const candidateArn = value?.arn ?? value?.profileArn
+      if (typeof candidateArn !== 'string') continue
+      try {
+        valid.push(assertKiroProfileArn(candidateArn))
+      } catch {
+        // Ignore malformed upstream entries instead of allowing them into a URL.
+      }
+    }
+    if (valid.length === 0) continue
+    // Put the token-region match first for convenience.
+    const regional = valid.find(arn => arn.split(':')[3] === token.region)
+    if (regional !== undefined && regional !== valid[0]) {
+      return [regional, ...valid.filter(a => a !== regional)]
+    }
+    return valid
+  }
+  return []
+}
+
 /** Resolve the best CodeWhisperer profile ARN for one OAuth credential. */
 export async function discoverKiroProfileArn(
   connection: Pick<KiroConnectionOptions, 'region' | 'proxyUrl'>,
@@ -111,56 +168,8 @@ export async function discoverKiroProfileArn(
   signal: AbortSignal,
   request: ProfileDiscoveryRequest = postJsonWithHeaders,
 ): Promise<string | undefined> {
-  if (token.authMethod === 'api_key') return undefined
-  const candidates = [...new Set([connection.region, token.region, 'us-east-1', 'eu-central-1']
-    .filter((candidate): candidate is string => candidate !== undefined))]
-  for (const candidate of candidates) {
-    const endpoint = `https://management.${candidate}.kiro.dev`
-    const attempts = [
-      {
-        url: endpoint,
-        headers: {
-          ...authHeaders(token),
-          'content-type': 'application/x-amz-json-1.0',
-          'x-amz-target': 'KiroControlPlaneBearerService.ListAvailableProfiles',
-        },
-      },
-    ]
-    for (const attempt of attempts) {
-      let response: { status: number; body: unknown }
-      try {
-        response = await request(
-          attempt.url,
-          { maxResults: 50 },
-          attempt.headers,
-          connection.proxyUrl,
-          signal,
-        )
-      } catch {
-        // Transport failure (network, TLS, proxy routing) for this candidate:
-        // try the next attempt or region rather than failing the whole discovery.
-        continue
-      }
-      if (response.status !== 200) continue
-      const profiles = record(response.body)?.profiles
-      if (!Array.isArray(profiles)) continue
-      const valid: string[] = []
-      for (const raw of profiles) {
-        const value = record(raw)
-        const candidateArn = value?.arn ?? value?.profileArn
-        if (typeof candidateArn !== 'string') continue
-        try {
-          valid.push(assertKiroProfileArn(candidateArn))
-        } catch {
-          // Ignore malformed upstream entries instead of allowing them into a URL.
-        }
-      }
-      const regional = valid.find(arn => arn.split(':')[3] === token.region)
-      if (regional !== undefined) return regional
-      if (valid[0] !== undefined) return valid[0]
-    }
-  }
-  return undefined
+  const all = await listKiroProfiles(connection, token, signal, request)
+  return all[0]
 }
 
 /** Infer whether a discovered route should expose Kiro's thinking controls. */

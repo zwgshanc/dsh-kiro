@@ -22,7 +22,7 @@ export type { KiroAdapterOptions, KiroCatalogModel, KiroConnectionOptions } from
 export { clearTokenCache, DEFAULT_REGION, kiroAuthMethod, kiroCredentialDirectory, resolveToken, resolveTokenFromDirectories, } from './auth.ts';
 export type { KiroToken, TokenSourceOptions } from './auth.ts';
 export type { DirectoryTokenSourceOptions, KiroAuthMethod } from './auth.ts';
-export { discoverKiroProfileArn, KiroModelDiscovery, modelPageToken, modelSupportsThinking, parseAvailableModels, parseEffortSchema, parseMaxTokensBounds, } from './discovery.ts';
+export { discoverKiroProfileArn, KiroModelDiscovery, listKiroProfiles, modelPageToken, modelSupportsThinking, parseAvailableModels, parseEffortSchema, parseMaxTokensBounds, } from './discovery.ts';
 export { compareKiroModels, FileModelSettingsStore, modelSelection, modelSettingsPath, } from './model-settings.ts';
 export type { KiroModelSettings } from './model-settings.ts';
 export { assertMicrosoftTokenEndpoint, normalizeExternalIdpCredentials } from './external-idp.ts';

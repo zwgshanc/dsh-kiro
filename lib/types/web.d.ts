@@ -11,6 +11,8 @@ interface WebDependencies {
     discovery: KiroModelDiscovery;
     modelSettings: FileModelSettingsStore;
     resolveToken: (connection: KiroConnectionOptions, signal: AbortSignal) => Promise<KiroToken>;
+    /** Write a new profileArn into the llm-kiro settings (undefined clears it). */
+    setProfileArn: (arn: string | undefined) => Promise<void>;
 }
 /** Register the optional DSH Web management API. */
 export declare function registerWebApi(ctx: Context, dependencies: WebDependencies): void;

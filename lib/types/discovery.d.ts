@@ -27,6 +27,12 @@ export interface KiroModelDiscoveryOptions {
     profileRequestJson?: ProfileDiscoveryRequest;
     cacheTtlMs?: number;
 }
+/**
+ * Fetch all available CodeWhisperer profile ARNs for one OAuth credential.
+ * Returns every valid ARN found, with the best match (token-region or first)
+ * listed first. Returns an empty array for api_key credentials or on failure.
+ */
+export declare function listKiroProfiles(connection: Pick<KiroConnectionOptions, 'region' | 'proxyUrl'>, token: KiroToken, signal: AbortSignal, request?: ProfileDiscoveryRequest): Promise<string[]>;
 /** Resolve the best CodeWhisperer profile ARN for one OAuth credential. */
 export declare function discoverKiroProfileArn(connection: Pick<KiroConnectionOptions, 'region' | 'proxyUrl'>, token: KiroToken, signal: AbortSignal, request?: ProfileDiscoveryRequest): Promise<string | undefined>;
 /** Infer whether a discovered route should expose Kiro's thinking controls. */

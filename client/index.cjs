@@ -82,6 +82,11 @@ window.__ModuleLoader__.load({
       pending: 'Complete authorization in the browser. This page will update automatically.',
       authMethod: 'Method',
       profile: 'Profile',
+      switchProfile: 'Switch',
+      loadingProfiles: 'Loading profiles…',
+      noProfiles: 'No profiles found.',
+      profileSwitched: 'Profile switched',
+      clearProfile: 'Clear (use default)',
       reasoning: 'Reasoning',
       default: 'default',
       context: 'Context',
@@ -159,6 +164,11 @@ window.__ModuleLoader__.load({
       pending: '请在浏览器中完成授权，本页面会自动更新。',
       authMethod: '方式',
       profile: 'Profile',
+      switchProfile: '切换',
+      loadingProfiles: '加载 Profile 列表…',
+      noProfiles: '未找到可用 Profile。',
+      profileSwitched: 'Profile 已切换',
+      clearProfile: '清除（使用默认）',
       reasoning: '推理',
       default: '默认',
       context: '上下文',
@@ -328,6 +338,14 @@ window.__ModuleLoader__.load({
 .dshk-input{box-sizing:border-box;width:100%;min-width:0;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#111827;font:inherit;font-size:13px}
 textarea.dshk-input{min-height:78px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .dshk-details{overflow-wrap:anywhere}
+.dshk-profile-switch-btn{margin-left:8px;font-size:11px}
+.dshk-profile-picker{margin-top:8px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#faf8ff}
+.dshk-profile-picker-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:12px;font-weight:650;color:#4b5563}
+.dshk-profile-list{margin:0;padding:0;list-style:none;display:grid;gap:4px}
+.dshk-profile-item{display:block;width:100%;padding:7px 10px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;color:#374151;font:inherit;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.dshk-profile-item:hover{border-color:#a78bfa;background:#f5f3ff}
+.dshk-profile-item-active{border-color:#7c3aed;background:#f5f3ff;font-weight:700}
+.dshk-profile-item-clear{font-family:inherit;font-style:italic;color:#9ca3af}
 .dshk-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:20px;background:rgba(15,23,42,.58);backdrop-filter:blur(3px)}
 .dshk-modal{box-sizing:border-box;width:min(640px,100%);max-height:min(760px,calc(100vh - 40px));overflow:auto;border:1px solid #e5e7eb;border-radius:16px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.3)}
 .dshk-modal-head{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #eef0f3;background:inherit}
@@ -349,7 +367,7 @@ textarea.dshk-input{min-height:78px;resize:vertical;font-family:ui-monospace,SFM
 .dshk-notice{margin-top:10px;padding:9px 11px;border-radius:9px;background:#f0fdf4;color:#15803d;font-size:12px}
 .dshk-empty{padding:18px;text-align:center;color:#9ca3af;font-size:13px}
 @media(max-width:620px){.dshk-grid{grid-template-columns:1fr}.dshk-field-wide{grid-column:auto}.dshk-auth-url-row{align-items:stretch;flex-direction:column}.dshk-head{align-items:flex-start;flex-direction:column}.dshk-usage-top{align-items:flex-start;flex-direction:column;gap:2px}.dshk-usage-metric{text-align:left}.dshk-model-sub{white-space:normal}}
-@media(prefers-color-scheme:dark){.dshk-notice{background:#0f2a1a;color:#86efac}.dshk-wrap{color:#f3f4f6}.dshk-card,.dshk-modal{border-color:#303642;background:#171a21}.dshk-modal-head{border-color:#303642}.dshk-status,.dshk-model{background:#1d2129;border-color:#303642;color:#d1d5db}.dshk-model:hover{border-color:#8b5cf6;background:#282333}.dshk-btn,.dshk-input,.dshk-method{border-color:#434b59;background:#20242d;color:#f3f4f6}.dshk-method:hover{border-color:#8b5cf6;background:#282333}.dshk-method-icon{background:#332a52;color:#c4b5fd}.dshk-close:hover{background:#272c35}.dshk-form,.dshk-usage{border-color:#303642}.dshk-field{color:#d1d5db}.dshk-code{border-color:#4338ca;background:#272447;color:#c7d2fe}.dshk-bar{background:#303642}.dshk-plan{background:#332a52;color:#c4b5fd}.dshk-link-btn{color:#c4b5fd}}
+@media(prefers-color-scheme:dark){.dshk-notice{background:#0f2a1a;color:#86efac}.dshk-wrap{color:#f3f4f6}.dshk-card,.dshk-modal{border-color:#303642;background:#171a21}.dshk-modal-head{border-color:#303642}.dshk-status,.dshk-model{background:#1d2129;border-color:#303642;color:#d1d5db}.dshk-model:hover{border-color:#8b5cf6;background:#282333}.dshk-btn,.dshk-input,.dshk-method{border-color:#434b59;background:#20242d;color:#f3f4f6}.dshk-method:hover{border-color:#8b5cf6;background:#282333}.dshk-method-icon{background:#332a52;color:#c4b5fd}.dshk-close:hover{background:#272c35}.dshk-form,.dshk-usage{border-color:#303642}.dshk-field{color:#d1d5db}.dshk-code{border-color:#4338ca;background:#272447;color:#c7d2fe}.dshk-bar{background:#303642}.dshk-plan{background:#332a52;color:#c4b5fd}.dshk-link-btn{color:#c4b5fd}.dshk-profile-picker{border-color:#303642;background:#1d2129}.dshk-profile-picker-header{color:#d1d5db}.dshk-profile-item{border-color:#303642;background:#20242d;color:#d1d5db}.dshk-profile-item:hover{border-color:#8b5cf6;background:#282333}.dshk-profile-item-active{border-color:#7c3aed;background:#282333}.dshk-profile-item-clear{color:#6b7280}}
 body[data-ds-dark-theme] .dshk-notice{background:#0f2a1a;color:#86efac}
 body[data-ds-dark-theme] .dshk-wrap{color:#f3f4f6}
 body[data-ds-dark-theme] .dshk-card,body[data-ds-dark-theme] .dshk-modal{border-color:#303642;background:#171a21}
@@ -378,6 +396,12 @@ body[data-ds-dark-theme] .dshk-working{color:#9ca3af}
 body[data-ds-dark-theme] .dshk-btn:hover{background:#272c35}
 body[data-ds-dark-theme] .dshk-usage-metric{color:#9ca3af}
 body[data-ds-dark-theme] .dshk-usage-foot{color:#6b7280}
+body[data-ds-dark-theme] .dshk-profile-picker{border-color:#303642;background:#1d2129}
+body[data-ds-dark-theme] .dshk-profile-picker-header{color:#d1d5db}
+body[data-ds-dark-theme] .dshk-profile-item{border-color:#303642;background:#20242d;color:#d1d5db}
+body[data-ds-dark-theme] .dshk-profile-item:hover{border-color:#8b5cf6;background:#282333}
+body[data-ds-dark-theme] .dshk-profile-item-active{border-color:#7c3aed;background:#282333}
+body[data-ds-dark-theme] .dshk-profile-item-clear{color:#6b7280}
 `
       document.head.appendChild(style)
     }
@@ -436,6 +460,9 @@ body[data-ds-dark-theme] .dshk-usage-foot{color:#6b7280}
       const [usage, setUsage] = useState(undefined)
       const [usageError, setUsageError] = useState('')
       const [notice, setNotice] = useState('')
+      const [profilePickerOpen, setProfilePickerOpen] = useState(false)
+      const [availableProfiles, setAvailableProfiles] = useState(undefined)
+      const [profilesError, setProfilesError] = useState('')
 
       const updateField = useCallback((name, value) => {
         setFields((current) => ({ ...current, [name]: value }))
@@ -644,6 +671,32 @@ body[data-ds-dark-theme] .dshk-usage-foot{color:#6b7280}
         } catch (cause) { setError(cause.message) } finally { setBusy('') }
       }, [])
 
+      const openProfilePicker = useCallback(async () => {
+        setProfilePickerOpen(true)
+        setAvailableProfiles(undefined)
+        setProfilesError('')
+        try {
+          const result = await api('/profiles')
+          if (result.error) setProfilesError(result.error)
+          setAvailableProfiles(result.profiles ?? [])
+        } catch (cause) {
+          setProfilesError(cause.message)
+          setAvailableProfiles([])
+        }
+      }, [])
+
+      const switchProfile = useCallback(async (arn) => {
+        setProfilePickerOpen(false)
+        setBusy('profile'); setError('')
+        try {
+          const next = await api('/profile', {
+            method: 'POST', body: JSON.stringify({ profileArn: arn ?? null }),
+          })
+          setStatus(next)
+          setNotice(t('profileSwitched'))
+        } catch (cause) { setError(cause.message) } finally { setBusy('') }
+      }, [t])
+
       const flow = status?.login
       const catalog = status?.models
       const models = Array.isArray(catalog?.models) ? catalog.models : []
@@ -816,7 +869,39 @@ body[data-ds-dark-theme] .dshk-usage-foot{color:#6b7280}
           status?.authenticated && React.createElement('div', { className: 'dshk-meta dshk-details' },
             status.authMethod && `${t('authMethod')}: ${status.authMethod}`,
             status.authMethod && status.profileArn && ' · ',
-            status.profileArn && `${t('profile')}: ${status.profileArn}`),
+            status.profileArn && `${t('profile')}: ${status.profileArn}`,
+            status.authenticated && status.authMethod !== 'api_key' && React.createElement('button', {
+              className: 'dshk-link-btn dshk-profile-switch-btn',
+              type: 'button',
+              disabled: !!busy,
+              onClick: openProfilePicker,
+            }, t('switchProfile'))),
+          profilePickerOpen && React.createElement('div', { className: 'dshk-profile-picker' },
+            React.createElement('div', { className: 'dshk-profile-picker-header' },
+              React.createElement('span', null, t('profile')),
+              React.createElement('button', {
+                className: 'dshk-link-btn', type: 'button', onClick: () => setProfilePickerOpen(false),
+              }, t('close'))),
+            availableProfiles === undefined
+              ? React.createElement('div', { className: 'dshk-working' }, t('loadingProfiles'))
+              : profilesError
+                ? React.createElement('div', { className: 'dshk-error' }, profilesError)
+                : availableProfiles.length === 0
+                  ? React.createElement('div', { className: 'dshk-meta' }, t('noProfiles'))
+                  : React.createElement('ul', { className: 'dshk-profile-list' },
+                      ...availableProfiles.map((arn) =>
+                        React.createElement('li', { key: arn },
+                          React.createElement('button', {
+                            className: `dshk-profile-item${arn === status?.profileArn ? ' dshk-profile-item-active' : ''}`,
+                            type: 'button',
+                            onClick: () => switchProfile(arn),
+                          }, arn))),
+                      React.createElement('li', { key: '__clear__' },
+                        React.createElement('button', {
+                          className: 'dshk-profile-item dshk-profile-item-clear',
+                          type: 'button',
+                          onClick: () => switchProfile(undefined),
+                        }, t('clearProfile'))))),
           status?.credentialSource === 'kiro' && React.createElement('div', {
             className: 'dshk-meta dshk-details',
           }, t('externalHint')),

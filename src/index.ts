@@ -56,6 +56,7 @@ export type { DirectoryTokenSourceOptions, KiroAuthMethod } from './auth.ts'
 export {
   discoverKiroProfileArn,
   KiroModelDiscovery,
+  listKiroProfiles,
   modelPageToken,
   modelSupportsThinking,
   parseAvailableModels,
@@ -484,5 +485,16 @@ export function apply(ctx: Context, config: Config): void {
     discovery,
     modelSettings,
     resolveToken: tokenResolver,
+    setProfileArn: async (arn) => {
+      // Write into the llm-kiro user settings section. The settings service
+      // may not be injected (minimal profile), so check before calling.
+      const s = ctx.get('settings') as { mutate?: (ns: string, ops: unknown[]) => Promise<void> } | undefined
+      if (s?.mutate === undefined) throw new Error('Settings service unavailable')
+      await s.mutate('llm-kiro', [
+        arn === undefined
+          ? { op: 'unset', path: ['profileArn'] }
+          : { op: 'set', path: ['profileArn'], value: arn },
+      ])
+    },
   })
 }

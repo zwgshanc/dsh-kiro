@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { KiroCatalogModel, KiroConnectionOptions } from './adapter.ts'
 import { kiroCredentialDirectory } from './auth.ts'
 import type { KiroToken } from './auth.ts'
-import { discoverKiroProfileArn } from './discovery.ts'
+import { discoverKiroProfileArn, listKiroProfiles } from './discovery.ts'
 import type { KiroModelDiscovery } from './discovery.ts'
 import { modelSelection } from './model-settings.ts'
 import type { FileModelSettingsStore } from './model-settings.ts'
@@ -23,6 +23,7 @@ import {
   startSocialDeviceLogin,
 } from './login.ts'
 import type { DeviceLoginPoll, ManagedCredentials, RefreshTokenOrigin } from './login.ts'
+import { assertKiroProfileArn } from './profile.ts'
 import { getJson, postJson } from './transport.ts'
 
 interface WebDependencies {
@@ -31,6 +32,8 @@ interface WebDependencies {
   discovery: KiroModelDiscovery
   modelSettings: FileModelSettingsStore
   resolveToken: (connection: KiroConnectionOptions, signal: AbortSignal) => Promise<KiroToken>
+  /** Write a new profileArn into the llm-kiro settings (undefined clears it). */
+  setProfileArn: (arn: string | undefined) => Promise<void>
 }
 
 interface LoginFlow {
@@ -460,6 +463,45 @@ export function registerWebApi(ctx: Context, dependencies: WebDependencies): voi
                 ok: true,
                 value: await modelPayload(models, 'live', dependencies.modelSettings),
               })
+              return
+            }
+            if (path === 'profiles' && request.method === 'GET') {
+              const connection = dependencies.options()
+              const signal = AbortSignal.timeout(15_000)
+              let profiles: string[] = []
+              let fetchError: string | undefined
+              try {
+                const token = await dependencies.resolveToken(connection, signal)
+                profiles = await listKiroProfiles(connection, token, signal)
+              } catch (error: unknown) {
+                fetchError = safeError(error)
+              }
+              // If discovery found nothing, surface the currently active profileArn
+              // so the user can still see what's in use and clear it if needed.
+              const current = connection.profileArn
+              if (profiles.length === 0 && current !== undefined) {
+                profiles = [current]
+              }
+              sendJson(response, 200, {
+                ok: true,
+                value: {
+                  profiles,
+                  current,
+                  ...fetchError === undefined ? {} : { error: fetchError },
+                },
+              })
+              return
+            }
+            if (path === 'profile' && request.method === 'POST') {
+              const body = await readJson(request)
+              const arn = optionalText(body.profileArn)
+              if (arn !== undefined) {
+                assertKiroProfileArn(arn)
+              }
+              await dependencies.setProfileArn(arn)
+              dependencies.discovery.clear()
+              emitUpdated()
+              sendJson(response, 200, { ok: true, value: await status() })
               return
             }
             if (['GET', 'POST'].includes(request.method ?? '')) {
