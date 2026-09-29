@@ -924,7 +924,7 @@ body[data-ds-dark-theme] .dshk-profile-item-clear{color:#6b7280}
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log('[dsh-kiro] client build 0.1.19-patch.7 (observer on body)')
+        console.log('[dsh-kiro] client build 0.1.19-patch.8 (observer on body)')
         installStyle()
         // The observer and its scope belong to this plugin's lifetime: an
         // undisposed one keeps watching the DOM after an unload or reload.
