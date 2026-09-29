@@ -38,6 +38,16 @@ export type * from './types.ts';
 export declare const name = "dsh-kiro";
 export declare const inject: string[];
 /**
+ * A config reference dsh 0.1.7 delivers in place of a plain value for a schema
+ * field marked `.volatile()`: the loader and a settings scope both wrap the
+ * field, and the reference is stable across settings writes. Declared
+ * structurally so the plugin needs no particular `@deepseek-ai/cordis` version.
+ */
+interface VolatileRef<T> {
+    /** @returns the current plain value, or undefined when absent. */
+    get(): T;
+}
+/**
  * Plugin config, validated by the same-named schemastery schema and doubling
  * as the `llm-kiro` settings-section shape. Every field is optional in yml: an
  * absent Kiro sign-in fails at the first request with `MISSING_CREDENTIAL`
@@ -54,8 +64,15 @@ export interface Config {
     proxyUrl?: string;
     /** Region selecting the endpoint; omitted follows the signed-in token file. */
     region?: string;
-    /** CodeWhisperer profile ARN; omitted uses the account default. */
-    profileArn?: string;
+    /**
+     * CodeWhisperer profile ARN; omitted uses the account default.
+     *
+     * Declared volatile so the Kiro settings page can switch profiles: dsh 0.1.7
+     * refuses a settings write to a plugin entry that declares no volatile field,
+     * and a volatile field reaches the plugin as a {@link VolatileRef} reference
+     * instead of a plain value (see {@link readConfigField}).
+     */
+    profileArn?: VolatileRef<string | undefined> | string;
     /** Deployment thinking policy; `disabled` suppresses model reasoning. */
     thinking?: 'enabled' | 'disabled';
     /** Optional provider-wide override; omission follows each model's live default. */
@@ -71,7 +88,29 @@ export interface Config {
     /** Provider-owned model-request retry policy; omission uses normal defaults. */
     retryPolicy?: RetryPolicyConfig;
 }
-export declare const Config: z<Config>;
+export declare const Config: z<Schemastery.ObjectS<NoInfer<{
+    proxyUrl: z<string, string, "plain">;
+    region: z<string, string, "plain">;
+    profileArn: z<string, string, "volatile">;
+    thinking: z<"enabled" | "disabled", "enabled" | "disabled", "plain">;
+    reasoningEffort: z<"off" | "low" | "medium" | "high" | "none" | "xhigh" | "max", "off" | "low" | "medium" | "high" | "none" | "xhigh" | "max", "plain">;
+    defaultContextWindow: z<number, number, "defined">;
+    models: z<KiroCatalogModel[], KiroCatalogModel[], "defined">;
+    streamIdleTimeoutMs: z<number, number, "defined">;
+    tokenExpiryBufferMs: z<number, number, "defined">;
+    retryPolicy: z<RetryPolicyConfig>;
+}>>, Schemastery.ObjectT<NoInfer<{
+    proxyUrl: z<string, string, "plain">;
+    region: z<string, string, "plain">;
+    profileArn: z<string, string, "volatile">;
+    thinking: z<"enabled" | "disabled", "enabled" | "disabled", "plain">;
+    reasoningEffort: z<"off" | "low" | "medium" | "high" | "none" | "xhigh" | "max", "off" | "low" | "medium" | "high" | "none" | "xhigh" | "max", "plain">;
+    defaultContextWindow: z<number, number, "defined">;
+    models: z<KiroCatalogModel[], KiroCatalogModel[], "defined">;
+    streamIdleTimeoutMs: z<number, number, "defined">;
+    tokenExpiryBufferMs: z<number, number, "defined">;
+    retryPolicy: z<RetryPolicyConfig>;
+}>>, "plain">;
 /**
  * One resolution's complete request facts. Connection, proxy, and token-policy
  * facts are one value on purpose: a snapshot the resolver rejects keeps the

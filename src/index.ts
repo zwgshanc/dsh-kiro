@@ -150,6 +150,17 @@ const DEFAULT_MODELS: KiroCatalogModel[] = [
 ]
 
 /**
+ * A config reference dsh 0.1.7 delivers in place of a plain value for a schema
+ * field marked `.volatile()`: the loader and a settings scope both wrap the
+ * field, and the reference is stable across settings writes. Declared
+ * structurally so the plugin needs no particular `@deepseek-ai/cordis` version.
+ */
+interface VolatileRef<T> {
+  /** @returns the current plain value, or undefined when absent. */
+  get(): T
+}
+
+/**
  * Plugin config, validated by the same-named schemastery schema and doubling
  * as the `llm-kiro` settings-section shape. Every field is optional in yml: an
  * absent Kiro sign-in fails at the first request with `MISSING_CREDENTIAL`
@@ -166,8 +177,15 @@ export interface Config {
   proxyUrl?: string
   /** Region selecting the endpoint; omitted follows the signed-in token file. */
   region?: string
-  /** CodeWhisperer profile ARN; omitted uses the account default. */
-  profileArn?: string
+  /**
+   * CodeWhisperer profile ARN; omitted uses the account default.
+   *
+   * Declared volatile so the Kiro settings page can switch profiles: dsh 0.1.7
+   * refuses a settings write to a plugin entry that declares no volatile field,
+   * and a volatile field reaches the plugin as a {@link VolatileRef} reference
+   * instead of a plain value (see {@link readConfigField}).
+   */
+  profileArn?: VolatileRef<string | undefined> | string
   /** Deployment thinking policy; `disabled` suppresses model reasoning. */
   thinking?: 'enabled' | 'disabled'
   /** Optional provider-wide override; omission follows each model's live default. */
@@ -203,10 +221,14 @@ const catalogModel: z<KiroCatalogModel> = z.object({
   }),
 })
 
-export const Config: z<Config> = z.object({
+// No `z<Config>` annotation: `.volatile()` changes the schema's static output
+// type for `profileArn`, and the annotation would force it to equal the
+// interface instead of describing the runtime reference. The harness declares
+// its own volatile config schemas the same way.
+export const Config = z.object({
   proxyUrl: z.string(),
   region: z.string(),
-  profileArn: z.string(),
+  profileArn: z.string().volatile(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['none', 'off', 'low', 'medium', 'high', 'xhigh', 'max']),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
@@ -319,6 +341,22 @@ function resolveModels(models: readonly KiroCatalogModel[] | undefined): KiroCat
 }
 
 /**
+ * Read one config field that dsh 0.1.7 may deliver as a volatile reference.
+ *
+ * A schema field marked `.volatile()` is wrapped into a `{ get() }` reference by
+ * the loader and by a settings scope, so it no longer arrives as a plain value;
+ * programmatic callers still pass the value itself. Both shapes are accepted.
+ * @param value - the raw field, a volatile reference, or undefined.
+ * @returns the current plain value, or undefined when absent.
+ */
+function readConfigField<T>(value: VolatileRef<T> | T | undefined): T | undefined {
+  if (typeof value === 'object' && value !== null && typeof (value as VolatileRef<T>).get === 'function') {
+    return (value as VolatileRef<T>).get()
+  }
+  return value as T | undefined
+}
+
+/**
  * The one explicit resolve step from raw config to validated connection facts.
  * Programmatic construction may bypass Schemastery normalization, so every
  * default and bound is re-judged here — for the composition entry at load
@@ -338,7 +376,8 @@ export function resolveAdapterOptions(config: Config): ResolvedKiroOptions {
   const proxyUrl = config.proxyUrl ?? proxyFromEnv()
   if (proxyUrl !== undefined) parseProxyUrl(proxyUrl)
   const region = config.region === undefined ? undefined : assertKiroRegion(config.region)
-  const profileArn = config.profileArn === undefined ? undefined : assertKiroProfileArn(config.profileArn)
+  const rawProfileArn = readConfigField(config.profileArn)
+  const profileArn = rawProfileArn === undefined ? undefined : assertKiroProfileArn(rawProfileArn)
   if (config.defaultContextWindow !== undefined
     && (!Number.isInteger(config.defaultContextWindow) || config.defaultContextWindow <= 0)) {
     throw new Error('llm-kiro: defaultContextWindow must be a positive integer')

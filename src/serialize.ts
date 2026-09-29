@@ -303,16 +303,25 @@ function assertToolName(name: string): string {
   return name
 }
 
-/** Serialize the tool-result blocks of one message. */
+/**
+ * Serialize the tool result carried by one message.
+ *
+ * A tool result is a first-class `role: 'tool'` message whose `toolCallId` sits
+ * on the message rather than on a content block. Reading a `'tool-result'`
+ * content block instead yields nothing, which drops every result from the wire
+ * history and makes the service reject the request for `tool_use` ids without a
+ * following `tool_result`.
+ * @param message - one harness conversation message.
+ * @returns the wire tool result, or an empty list for any other role.
+ */
 function toolResultsOf(message: Message): WireToolResult[] {
-  return message.content
-    .filter(block => block.type === 'tool-result')
-    .map(block => ({
-      toolUseId: block.toolCallId,
-      // Empty tool output still needs content on the wire.
-      content: [{ text: flattenText(block.content) || '(no output)' }],
-      status: block.isError === true ? 'error' as const : 'success' as const,
-    }))
+  if (message.role !== 'tool') return []
+  return [{
+    toolUseId: message.toolCallId,
+    // Empty tool output still needs content on the wire.
+    content: [{ text: flattenText(message.content) || '(no output)' }],
+    status: message.isError === true ? 'error' as const : 'success' as const,
+  }]
 }
 
 /** Serialize the tool-call blocks of one assistant message. */
@@ -367,7 +376,11 @@ function foldTurns(
 )[] {
   const turns: ReturnType<typeof foldTurns> = []
   for (const message of messages) {
-    const text = flattenText(message.content)
+    // A tool result's content is tool output, not user-visible turn text: the
+    // wire carries it under `toolResults`, and only a result whose issuing call
+    // was dropped degrades to text. Taking it as turn text would duplicate the
+    // output into the user message's content.
+    const text = message.role === 'tool' ? '' : flattenText(message.content)
     if (message.role === 'assistant') {
       // The wire's assistant message has no image seat, so an assistant image
       // cannot be replayed; refusing beats dropping it from history silently.
