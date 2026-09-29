@@ -417,15 +417,18 @@ export function resolveAdapterOptions(config: Config): ResolvedKiroOptions {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  let current: () => Config = () => config
-  let lastRaw: Config | undefined
+  // A volatile field arrives as a live reference on an object whose identity
+  // never changes, so the resolution cache keys on the volatile values rather
+  // than on the config object, or a settings write would never be re-resolved.
+  const volatileKey = (): string => JSON.stringify(readConfigField(config.profileArn) ?? null)
+  let lastKey: string | undefined
   let lastGood: ResolvedKiroOptions | undefined
   const options = (): ResolvedKiroOptions => {
-    const raw = current()
-    if (raw === lastRaw && lastGood !== undefined) return lastGood
+    const key = volatileKey()
+    if (key === lastKey && lastGood !== undefined) return lastGood
     try {
-      const next = resolveAdapterOptions(raw)
-      lastRaw = raw
+      const next = resolveAdapterOptions(config)
+      lastKey = key
       lastGood = next
       return next
     } catch (error) {
@@ -433,7 +436,7 @@ export function apply(ctx: Context, config: Config): void {
       // only sees a live settings snapshot failing a beyond-schema bound:
       // keep serving the last good facts and say so once per bad snapshot.
       if (lastGood === undefined) throw error
-      lastRaw = raw
+      lastKey = key
       ctx.logger.error('llm-kiro: keeping the last good configuration after an invalid settings section')
       ctx.logger.error(error)
       return lastGood
@@ -513,10 +516,14 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.inject(['settings'], (settingsCtx) => {
-    const scope = settingsCtx.settings.register(NS, Config, { base: config })
-    current = () => scope.get()
+    // The settings service reads this plugin's Config from its loader entry and
+    // gates writes on the fields the schema marks volatile; `configure` states
+    // only this instance's page policy, since this plugin registers its own
+    // page. Live values arrive through the volatile reference on `config`.
+    // `retryPolicy` is not volatile, so no settings write can change the
+    // registered policy and the one call below covers registration.
+    settingsCtx.effect(() => settingsCtx.settings.configure({ auto: false }, ctx.fiber))
     ensureRegistrationFacts()
-    scope.watch(() => { ensureRegistrationFacts() })
   })
   registerWebApi(ctx, {
     managedDirectory,

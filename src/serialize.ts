@@ -19,7 +19,7 @@
  */
 
 import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { AssistantMessage, ContentBlock, GenerateOptions, RequestMessage, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type {
   WireHistoryEntry,
   WireImageBlock,
@@ -255,10 +255,9 @@ function assertNoImages(blocks: readonly ContentBlock[], role: string): void {
 /**
  * Collect the wire images for one user message, in content order.
  *
- * Images nested in a tool result are hoisted onto the same user turn: the
- * service's `ToolResultContentBlock` is a union of text and json only, so a
- * screenshot returned by a tool has no seat of its own, and the enclosing turn
- * is the nearest place that preserves it rather than discarding it.
+ * A tool result's content is collected like user content: the service's
+ * tool-result shape carries no image seat, so an image a tool returned is
+ * hoisted onto the enclosing user turn rather than discarded.
  * @param blocks - blocks from one user message.
  * @param prepared - wire images already read for this request.
  * @returns wire image blocks in the order they appear.
@@ -280,7 +279,7 @@ function imagesOf(
           )
         }
         images.push(image)
-      } else if (block.type === 'tool-result') walk(block.content)
+      }
     }
   }
   walk(blocks)
@@ -314,8 +313,7 @@ function assertToolName(name: string): string {
  * @param message - one harness conversation message.
  * @returns the wire tool result, or an empty list for any other role.
  */
-function toolResultsOf(message: Message): WireToolResult[] {
-  if (message.role !== 'tool') return []
+function toolResultsOf(message: ToolResultMessage): WireToolResult[] {
   return [{
     toolUseId: message.toolCallId,
     // Empty tool output still needs content on the wire.
@@ -325,7 +323,7 @@ function toolResultsOf(message: Message): WireToolResult[] {
 }
 
 /** Serialize the tool-call blocks of one assistant message. */
-function toolUsesOf(message: Message): WireToolUse[] {
+function toolUsesOf(message: AssistantMessage): WireToolUse[] {
   return message.content
     .filter(block => block.type === 'tool-call')
     .map(block => ({
@@ -368,7 +366,7 @@ interface UserTurn {
  * @returns the folded turns, each tagged with its role.
  */
 function foldTurns(
-  messages: readonly Message[],
+  messages: readonly RequestMessage[],
   images: PreparedImages,
 ): (
   | { role: 'user'; turn: UserTurn }
@@ -397,7 +395,7 @@ function foldTurns(
     }
     // Both `user` and `system` roles reach the model as user content: Kiro has
     // no system slot, and a mid-conversation system message is context.
-    const toolResults = toolResultsOf(message)
+    const toolResults = message.role === 'tool' ? toolResultsOf(message) : []
     const turnImages = imagesOf(message.content, images)
     const last = turns.at(-1)
     if (last?.role === 'user') {
