@@ -190,115 +190,87 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** The settings-nav row patched last, or null before the first patch. */
+    let lastPatchedRow = null
+
+    /** Whether this nav row already carries the Kiro mark. */
+    function isKiroMarked(button) {
+      const svg = button.querySelector('svg')
+      if (!svg || svg.getAttribute('viewBox') !== '0 0 1200 1200') return false
+      const body = svg.querySelector('path')
+      return body !== null && body.getAttribute('d') === KIRO_BODY_PATH
+    }
+
     /**
      * Replace the settings-nav glyph for this plugin's section with the official
      * Kiro mark.
      *
      * The settings shell picks nav icons from a fixed table keyed by section id
      * and exposes no icon seat to registrants, so the glyph can only be adjusted
-     * in the DOM. Returns whether the icon is now in place, which is what lets
-     * the observer below stop working instead of scanning forever.
+     * in the DOM. Idempotent: a row already carrying the mark is left untouched,
+     * which is what stops the observer below from writing in a loop.
+     * @returns whether a Kiro row now carries the mark.
      */
     function patchNavIcon() {
       let installed = false
       for (const span of document.querySelectorAll('span')) {
         if (!span.textContent || span.textContent.trim() !== 'Kiro') continue
         const button = span.closest('button')
-        const svg = button && button.querySelector('svg')
-        if (!svg) continue
-        const body = svg.querySelector('path')
-        if (svg.getAttribute('viewBox') === '0 0 1200 1200'
-          && body && body.getAttribute('d') === KIRO_BODY_PATH) {
+        if (!button) continue
+        lastPatchedRow = button
+        if (isKiroMarked(button)) {
           installed = true
           continue
         }
+        const svg = button.querySelector('svg')
+        if (!svg) continue
         svg.setAttribute('viewBox', '0 0 1200 1200')
         svg.setAttribute('width', '16')
         svg.setAttribute('height', '16')
         svg.setAttribute('fill', 'none')
-        svg.innerHTML = `<rect width="1200" height="1200" rx="260" fill="#9046FF"/><path d="${KIRO_BODY_PATH}" fill="white"/><path d="${KIRO_LEFT_EYE_PATH}" fill="black"/><path d="${KIRO_RIGHT_EYE_PATH}" fill="black"/>`
+        const NS = 'http://www.w3.org/2000/svg'
+        while (svg.firstChild) svg.removeChild(svg.firstChild)
+        const rect = document.createElementNS(NS, 'rect')
+        rect.setAttribute('width', '1200'); rect.setAttribute('height', '1200')
+        rect.setAttribute('rx', '260'); rect.setAttribute('fill', '#9046FF')
+        svg.appendChild(rect)
+        const bodyPath = document.createElementNS(NS, 'path')
+        bodyPath.setAttribute('d', KIRO_BODY_PATH); bodyPath.setAttribute('fill', 'white')
+        svg.appendChild(bodyPath)
+        const leftEye = document.createElementNS(NS, 'path')
+        leftEye.setAttribute('d', KIRO_LEFT_EYE_PATH); leftEye.setAttribute('fill', 'black')
+        svg.appendChild(leftEye)
+        const rightEye = document.createElementNS(NS, 'path')
+        rightEye.setAttribute('d', KIRO_RIGHT_EYE_PATH); rightEye.setAttribute('fill', 'black')
+        svg.appendChild(rightEye)
         installed = true
       }
       return installed
     }
 
-    /** The nav element holding this plugin's settings row, when it is mounted. */
-    function navContainer() {
-      for (const span of document.querySelectorAll('span')) {
-        if (!span.textContent || span.textContent.trim() !== 'Kiro') continue
-        const button = span.closest('button')
-        const nav = button && button.closest('nav')
-        if (nav) return nav
-      }
-      return undefined
-    }
-
     /**
-     * Keep the nav icon patched for as long as this plugin is loaded, without
-     * polling and without watching the whole document forever.
+     * Keep the nav icon patched for as long as this plugin is loaded.
      *
-     * Two observation scopes: the app root while the settings panel is closed
-     * (the panel mounts and unmounts, so its arrival has to be noticed
-     * somewhere), then the panel's own `nav` once the row exists. Re-arming the
-     * wide scope happens only when that nav leaves the document.
-     * @returns a disposer that stops all observation.
+     * Observe the document body, not the app root: the settings modal renders
+     * through a portal outside the root container, so a root-scoped observer
+     * never sees a reopened panel. The steady state costs one node check — the
+     * row patched last is still mounted and still marked — so unrelated
+     * structural changes never pay for a span scan.
+     * @returns a disposer that stops observation.
      */
     function installNavIcon() {
-      const root = document.getElementById('root') || document.body || document.documentElement
-      let observer
-      let rootSentinel
-      let scope
-      let scheduled = false
       let disposed = false
-
-      const observe = (target) => {
-        if (disposed || !target || target === scope) return
-        if (observer) observer.disconnect()
-        scope = target
-        observer = new MutationObserver(schedule)
-        observer.observe(target, { childList: true, subtree: true })
-        // When narrowed to a nav, keep a sentinel on root watching for the nav
-        // to unmount (an unmounted node never fires its own observer again).
-        if (target !== root) {
-          if (!rootSentinel) {
-            rootSentinel = new MutationObserver(schedule)
-            rootSentinel.observe(root, { childList: true, subtree: true })
-          }
-        } else {
-          if (rootSentinel) {
-            rootSentinel.disconnect()
-            rootSentinel = undefined
-          }
-        }
-      }
-
-      const apply = () => {
-        scheduled = false
+      const observer = new MutationObserver(() => {
         if (disposed) return
-        const installed = patchNavIcon()
-        const nav = navContainer()
-        // Narrow to the nav once it exists; widen again if it goes away, so a
-        // reopened panel is still picked up.
-        observe(installed && nav ? nav : root)
-      }
-
-      function schedule() {
-        if (disposed || scheduled) return
-        scheduled = true
-        const defer = typeof window.requestAnimationFrame === 'function'
-          ? window.requestAnimationFrame
-          : (callback) => window.setTimeout(callback, 0)
-        defer(apply)
-      }
-
-      apply()
+        if (lastPatchedRow !== null && lastPatchedRow.isConnected && isKiroMarked(lastPatchedRow)) return
+        patchNavIcon()
+      })
+      observer.observe(document.body ?? document.documentElement, { childList: true, subtree: true })
+      const initial = patchNavIcon()
+      console.log(`[dsh-kiro] nav-icon observer armed on body; initial patch applied: ${initial}`)
       return () => {
         disposed = true
-        if (observer) observer.disconnect()
-        if (rootSentinel) rootSentinel.disconnect()
-        observer = undefined
-        rootSentinel = undefined
-        scope = undefined
+        observer.disconnect()
       }
     }
 
@@ -505,12 +477,11 @@ body[data-ds-dark-theme] .dshk-profile-item-clear{color:#6b7280}
           setUsageError('')
           return undefined
         }
-        let active = true
+        // The usage endpoint is not implemented for the IDC/SSO methods in use
+        // here, so it is never queried — the call only produced a 404. Usage is
+        // taken from the status payload when the server supplies it.
         if (status?.usage) setUsage(status.usage)
-        void api('/usage').then((value) => {
-          if (active) { setUsage(value); setUsageError('') }
-        }).catch((cause) => { if (active) setUsageError(cause.message) })
-        return () => { active = false }
+        return undefined
       }, [credentialKey])
 
       useEffect(() => {
@@ -531,9 +502,8 @@ body[data-ds-dark-theme] .dshk-profile-item-clear{color:#6b7280}
       }, [t])
 
       const refreshUsage = useCallback(async () => {
-        setBusy('usage'); setUsageError('')
-        try { setUsage(await api('/usage', { method: 'POST' })) }
-        catch (cause) { setUsageError(cause.message) } finally { setBusy('') }
+        // usage API not supported for IDC/SSO login; skip to avoid 404
+        setBusy('')
       }, [])
 
       const login = useCallback(async (requestedMethod) => {
@@ -965,6 +935,7 @@ body[data-ds-dark-theme] .dshk-profile-item-clear{color:#6b7280}
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        console.log('[dsh-kiro] client build 0.1.19-patch.6 (observer on body)')
         installStyle()
         // The observer and its scope belong to this plugin's lifetime: an
         // undisposed one keeps watching the DOM after an unload or reload.
