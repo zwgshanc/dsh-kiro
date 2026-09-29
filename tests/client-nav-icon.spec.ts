@@ -189,18 +189,19 @@ describe('settings nav icon lifecycle', () => {
     expect(intervals).toEqual([])
   })
 
-  it('watches the app root until the nav exists, then narrows to that nav', () => {
+  it('watches the document body so a reopened settings panel is still patched', () => {
     start()
-    // No panel yet: the wide scope is the only way to notice it mount.
+    // The settings modal is portaled outside the app root, so `body` is the only
+    // scope that sees it mount, unmount and mount again. The observer keeps that
+    // wide scope instead of narrowing to a nav it would then outlive.
     expect(observers).toHaveLength(1)
     expect(observers[0]?.targets).toEqual([root])
     expect(observers[0]?.options).toEqual({ childList: true, subtree: true })
 
-    const { nav } = mountPanel(root)
+    const { svg } = mountPanel(root)
     observers[0]?.fire()
-    // Icon installed, so observation narrows to the nav and the wide observer stops.
-    expect(observers[0]?.disconnected).toBe(true)
-    expect(observers[1]?.targets).toEqual([nav])
+    expect(svg.getAttribute('viewBox')).toBe('0 0 1200 1200')
+    expect(observers[0]?.disconnected).toBe(false)
   })
 
   it('installs the official Kiro mark on the nav glyph', () => {

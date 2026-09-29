@@ -228,21 +228,10 @@ window.__ModuleLoader__.load({
         svg.setAttribute('width', '16')
         svg.setAttribute('height', '16')
         svg.setAttribute('fill', 'none')
-        const NS = 'http://www.w3.org/2000/svg'
-        while (svg.firstChild) svg.removeChild(svg.firstChild)
-        const rect = document.createElementNS(NS, 'rect')
-        rect.setAttribute('width', '1200'); rect.setAttribute('height', '1200')
-        rect.setAttribute('rx', '260'); rect.setAttribute('fill', '#9046FF')
-        svg.appendChild(rect)
-        const bodyPath = document.createElementNS(NS, 'path')
-        bodyPath.setAttribute('d', KIRO_BODY_PATH); bodyPath.setAttribute('fill', 'white')
-        svg.appendChild(bodyPath)
-        const leftEye = document.createElementNS(NS, 'path')
-        leftEye.setAttribute('d', KIRO_LEFT_EYE_PATH); leftEye.setAttribute('fill', 'black')
-        svg.appendChild(leftEye)
-        const rightEye = document.createElementNS(NS, 'path')
-        rightEye.setAttribute('d', KIRO_RIGHT_EYE_PATH); rightEye.setAttribute('fill', 'black')
-        svg.appendChild(rightEye)
+        // One innerHTML write: the observer sees the resulting childList
+        // mutations, and the guard above turns that callback into a no-op
+        // because the mark is already in place.
+        svg.innerHTML = `<rect width="1200" height="1200" rx="260" fill="#9046FF"/><path d="${KIRO_BODY_PATH}" fill="white"/><path d="${KIRO_LEFT_EYE_PATH}" fill="black"/><path d="${KIRO_RIGHT_EYE_PATH}" fill="black"/>`
         installed = true
       }
       return installed
@@ -935,7 +924,7 @@ body[data-ds-dark-theme] .dshk-profile-item-clear{color:#6b7280}
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log('[dsh-kiro] client build 0.1.19-patch.6 (observer on body)')
+        console.log('[dsh-kiro] client build 0.1.19-patch.7 (observer on body)')
         installStyle()
         // The observer and its scope belong to this plugin's lifetime: an
         // undisposed one keeps watching the DOM after an unload or reload.
